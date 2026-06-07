@@ -61,9 +61,43 @@ func build_chunk_visual(
 	root.set_meta("catalog", catalog)
 	root.set_meta("cell_size_meters", cell_size_meters)
 	root.set_meta("visual_tiles_by_corner", _tiles_by_corner(visual_plan.get("tiles", [])))
+	root.set_meta("visual_tile_count", int(visual_plan.get("tiles", []).size()))
+	root.set_meta("visual_backend", "multimesh")
 	root.set_meta("last_dirty_corner_count", 0)
 	_rebuild_multimesh_buckets(root)
 
+	return root
+
+
+func build_chunk_visual_array_mesh(
+	chunk_coord: Vector3i,
+	visual_plan: Dictionary,
+	catalog: RefCounted,
+	chunk_edge_meters: float,
+	cells_per_chunk: int,
+	pooled_root: Node3D = null
+) -> Node3D:
+	var root: Node3D = pooled_root
+	if root == null:
+		root = Node3D.new()
+	else:
+		_clear_children(root)
+
+	root.name = "ChunkArrayVisual_%s_%s_%s" % [chunk_coord.x, chunk_coord.y, chunk_coord.z]
+	root.set_meta("chunk_coord", chunk_coord)
+	root.set_meta("catalog", catalog)
+	var cell_size_meters: float = chunk_edge_meters / float(maxi(cells_per_chunk, 1))
+	root.set_meta("cell_size_meters", cell_size_meters)
+	root.set_meta("visual_tiles_by_corner", _tiles_by_corner(visual_plan.get("tiles", [])))
+	root.set_meta("visual_tile_count", int(visual_plan.get("tiles", []).size()))
+	root.set_meta("visual_backend", "array_mesh")
+	root.set_meta("last_dirty_corner_count", 0)
+
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.name = "array_mesh_bucket"
+	mesh_instance.mesh = _build_array_mesh(visual_plan.get("tiles", []), cell_size_meters)
+	mesh_instance.material_override = catalog.get_material("debug")
+	root.add_child(mesh_instance)
 	return root
 
 
@@ -80,6 +114,8 @@ func destroy_or_pool(chunk_root: Node3D, pool: Array[Node3D], max_pool_size: int
 	_remove_meta_if_present(chunk_root, "catalog")
 	_remove_meta_if_present(chunk_root, "cell_size_meters")
 	_remove_meta_if_present(chunk_root, "visual_tiles_by_corner")
+	_remove_meta_if_present(chunk_root, "visual_tile_count")
+	_remove_meta_if_present(chunk_root, "visual_backend")
 	_remove_meta_if_present(chunk_root, "last_dirty_corner_count")
 
 	if pool.size() < max_pool_size:
@@ -199,6 +235,58 @@ func _rebuild_multimesh_buckets(root: Node3D) -> void:
 		instance.multimesh = multimesh
 		instance.material_override = catalog.get_material(source_asset_key)
 		root.add_child(instance)
+
+
+func _build_array_mesh(tiles: Array, cell_size_meters: float) -> ArrayMesh:
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+
+	for tile in tiles:
+		var data: Dictionary = tile
+		if data["is_empty"]:
+			continue
+		_append_tile_quad(vertices, normals, indices, data, cell_size_meters)
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+
+	var mesh := ArrayMesh.new()
+	if not vertices.is_empty():
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+func _append_tile_quad(
+	vertices: PackedVector3Array,
+	normals: PackedVector3Array,
+	indices: PackedInt32Array,
+	tile_data: Dictionary,
+	cell_size_meters: float
+) -> void:
+	var index_start := vertices.size()
+	var half_size := cell_size_meters * 0.45
+	var transform := _tile_transform(tile_data, cell_size_meters)
+	var local_vertices := [
+		Vector3(-half_size, 0.04, -half_size),
+		Vector3(half_size, 0.04, -half_size),
+		Vector3(half_size, 0.04, half_size),
+		Vector3(-half_size, 0.04, half_size),
+	]
+
+	for local_vertex in local_vertices:
+		vertices.append(transform * local_vertex)
+		normals.append(Vector3.UP)
+
+	indices.append(index_start)
+	indices.append(index_start + 1)
+	indices.append(index_start + 2)
+	indices.append(index_start)
+	indices.append(index_start + 2)
+	indices.append(index_start + 3)
 
 
 func _corner_key(corner: Vector2i) -> String:
