@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M15 are implemented in the current proof slice. M16-M17 are future work only.
+M0-M16 are implemented in the current proof slice. M17 is future work only.
 
 ## Execution Rules
 
@@ -44,6 +44,8 @@ M0-M15 are implemented in the current proof slice. M16-M17 are future work only.
   extraction gate for `grid_generation`.
 - M15 chooses the tilekit manifest as the asset contract and explicitly defers
   any `Crystonix/asset` repository or asset crates.
+- M16 adds a Godot tilekit manifest adapter, GLB catalog entry bridge, and
+  in-memory MeshLibrary editor artifact proof without making it runtime truth.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -175,10 +177,16 @@ fallback meshes, materials, and future adapter tools stay in `godot_world_lab`.
 
 ## M16 - Godot Asset Adapter Only If Asset Contracts Exist
 
+Status: complete for the current proof.
+
 - GLB/glTF bridge.
 - Godot catalog generation.
 - `MeshLibrary` import/editor artifact if useful.
 - No runtime world truth.
+
+The adapter consumes the M15 tilekit manifest and feeds `TileMeshCatalog`.
+`MeshLibrary` is generated only as an in-memory editor/import artifact report
+with `runtime_truth = false`.
 
 ## M17 - Reconnect Runenwerk
 
