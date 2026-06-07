@@ -1,0 +1,60 @@
+# Collision Contract Findings
+
+This records M12 collision findings before any extraction decision.
+
+## Stable Contract
+
+The lab has a stable collision prototype boundary:
+
+- Collision consumes `ChunkVisualPlan.visual_tiles`.
+- Collision is chunk-owned and unloads with the chunk root.
+- The current backend creates one `StaticBody3D` per chunk and one box
+  `CollisionShape3D` per non-empty visual tile.
+- Collision diagnostics report whether a chunk has collision and how many shapes
+  were created.
+
+This proves that collision can be derived from formed products without changing
+topology or streaming truth.
+
+## Lab-Specific Implementation
+
+These parts remain Godot World Lab details:
+
+- `StaticBody3D`, `CollisionShape3D`, and `BoxShape3D` ownership.
+- Collision height.
+- Shape naming.
+- Physics layer/mask defaults.
+- Whether non-empty visual tiles are the right collision source for gameplay.
+
+The prototype is intentionally conservative. It proves lifecycle and ownership,
+not final gameplay physics.
+
+## Extraction Blockers
+
+Do not move collision into `grid` or `spatial_streaming`.
+
+The blockers are:
+
+- `grid` should not know Godot physics resources.
+- `spatial_streaming` should not know collision or renderer realization.
+- The collision backend has not been validated against player movement,
+  navigation, placed objects, or Runenwerk gameplay semantics.
+- There is no neutral collision shape descriptor contract yet.
+
+## Future Contract Candidate
+
+A future neutral contract could be:
+
+```text
+visual/topology descriptor -> chunk-local collision primitive descriptors
+```
+
+That contract would still not own Godot `StaticBody3D` nodes. The Godot adapter
+would translate neutral descriptors into physics nodes.
+
+## Critical Review
+
+- Ownership: passed. Collision remains Godot lab realization.
+- Lifecycle: passed. Collision is chunk-root-owned.
+- Extraction readiness: blocked. A neutral collision descriptor may be useful
+  later, but current proof is Godot-specific.

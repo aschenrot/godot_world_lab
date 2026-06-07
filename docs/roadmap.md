@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M11 are implemented in the current proof slice. M12-M17 are future work only.
+M0-M12 are implemented in the current proof slice. M13-M17 are future work only.
 
 ## Execution Rules
 
@@ -36,6 +36,8 @@ M0-M11 are implemented in the current proof slice. M12-M17 are future work only.
 - M9 adds a placed object layer separate from terrain topology.
 - M10 adds in-memory chunk overlays that survive unload/reload.
 - M11 improves lab generation quality and cache/version diagnostics.
+- M12 records extraction findings for assets, generation, collision, and placed
+  objects before any reusable code is moved.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -118,6 +120,8 @@ Done when generator version changes are observable through diagnostics and do
 not silently reuse stale cached chunk data.
 
 ## M12 - Findings Docs Before Extraction
+
+Status: complete for the current proof.
 
 - Add `asset-contract-findings.md`.
 - Add `generation-contract-findings.md`.
