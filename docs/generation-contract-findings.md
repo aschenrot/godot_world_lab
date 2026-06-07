@@ -53,10 +53,11 @@ The blockers are:
 ## M13 Direction
 
 Only the neutral integer hash behavior is a plausible extraction candidate.
-It can move to `spatial_streaming` if it stays payload-neutral:
+It moved to `spatial_streaming/crates/spatial/src/hash` because it stayed
+payload-neutral:
 
 ```text
-world_seed + coordinate integers -> deterministic integer/u32
+world_seed + coordinate integers -> deterministic u64
 ```
 
 It must not include wall thresholds, rooms, paths, smoothing, tiles, SDF,

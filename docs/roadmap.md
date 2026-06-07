@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M12 are implemented in the current proof slice. M13-M17 are future work only.
+M0-M13 are implemented in the current proof slice. M14-M17 are future work only.
 
 ## Execution Rules
 
@@ -38,6 +38,8 @@ M0-M12 are implemented in the current proof slice. M13-M17 are future work only.
 - M11 improves lab generation quality and cache/version diagnostics.
 - M12 records extraction findings for assets, generation, collision, and placed
   objects before any reusable code is moved.
+- M13 extracts only payload-neutral spatial hash helpers into
+  `spatial_streaming/crates/spatial/src/hash`.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -133,8 +135,14 @@ and what still blocks extraction.
 
 ## M13 - Extract Neutral Spatial Hash Only If Proven
 
+Status: complete for the current proof.
+
 - Likely location: `spatial_streaming/crates/spatial/src/hash/mod.rs`.
 - Do not extract generation rules.
+
+The extracted API is limited to deterministic integer coordinate hashing and
+bucket mapping. It does not own wall thresholds, smoothing, rooms, paths, debug
+markers, tile descriptors, SDF, ECS, assets, providers, or Runenwerk semantics.
 
 ## M14 - Extract Reusable Generation Only If Stable
 
