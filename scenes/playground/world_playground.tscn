@@ -1,0 +1,30 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/world_controller.gd" id="1_world_controller"]
+[ext_resource type="Script" path="res://scripts/player/free_fly_camera.gd" id="2_free_fly_camera"]
+
+[node name="WorldPlayground" type="Node3D"]
+
+[node name="WorldController" type="Node3D" parent="."]
+script = ExtResource("1_world_controller")
+load_radius_chunks = 4
+unload_radius_chunks = 6
+focus_target_path = NodePath("../PlayerRig/Camera3D")
+chunk_root_container_path = NodePath("../ChunkRootContainer")
+
+[node name="PlayerRig" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0, 36, 48)
+script = ExtResource("2_free_fly_camera")
+
+[node name="Camera3D" type="Camera3D" parent="PlayerRig"]
+current = true
+
+[node name="ChunkRootContainer" type="Node3D" parent="."]
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 16, 0)
+light_energy = 2.0
+
+[node name="FillLight" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 18, 12)
+light_energy = 0.75

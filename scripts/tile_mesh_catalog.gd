@@ -57,8 +57,9 @@ func validate_visual_plan(visual_plan: Dictionary) -> Dictionary:
 	var missing: Array[String] = []
 	var present: Array[String] = []
 	var seen: Dictionary = {}
+	var tiles: Array = visual_plan.get("visual_tiles", visual_plan.get("tiles", []))
 
-	for tile in visual_plan.get("tiles", []):
+	for tile in tiles:
 		var data: Dictionary = tile
 		var asset_key: String = data["asset_key"]
 		if seen.has(asset_key):
@@ -81,6 +82,22 @@ func validate_visual_plan(visual_plan: Dictionary) -> Dictionary:
 
 func missing_asset_key_count() -> int:
 	return missing_asset_keys.size()
+
+
+func get_missing_asset_keys() -> Array:
+	var keys := missing_asset_keys.keys()
+	keys.sort()
+	return keys
+
+
+func get_diagnostics() -> Dictionary:
+	return {
+		"selected_variant": selected_variant,
+		"mesh_count": mesh_by_key.size(),
+		"material_count": material_by_key.size(),
+		"missing_asset_key_count": missing_asset_key_count(),
+		"missing_asset_keys": get_missing_asset_keys(),
+	}
 
 
 func clear_missing_asset_keys() -> void:

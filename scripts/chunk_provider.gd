@@ -2,6 +2,9 @@ extends Node
 
 @export var chunk_size_cells: int = 16
 @export var generator_version: int = 1
+@export var world_seed: int = 1337
+@export_range(0, 100, 1) var wall_threshold_percent: int = 34
+@export var debug_force_chunk_border: bool = false
 @export var async_provider_enabled: bool = false
 @export var provider_delay_frames: int = 0
 @export var use_chunk_cache: bool = false
@@ -63,9 +66,14 @@ func cache_entry_count() -> int:
 	return chunk_cache.entry_count()
 
 
-func get_loaded_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
+func get_loaded_chunk_data(chunk_coord: Vector3i) -> Dictionary:
 	var record: Dictionary = loaded_chunks.get(_chunk_key(chunk_coord), {})
-	return record.get("logic_grid", [])
+	return record.get("generated_chunk_data", {})
+
+
+func get_loaded_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
+	var generated_chunk_data := get_loaded_chunk_data(chunk_coord)
+	return generated_chunk_data.get("logic_grid", [])
 
 
 func configure_async_provider(enabled: bool, delay_frames: int) -> void:
@@ -122,22 +130,25 @@ func _complete_request(request_id: int) -> void:
 
 func _load_chunk_content(chunk_coord: Vector3i) -> void:
 	var logic_grid: Array = []
+	var settings_hash := generation_settings_hash()
 	if use_chunk_cache:
 		_ensure_cache()
-		if chunk_cache.has_chunk(chunk_coord, generator_version):
+		if chunk_cache.has_chunk(chunk_coord, generator_version, settings_hash):
 			cache_hit_count += 1
-			logic_grid = chunk_cache.load_chunk(chunk_coord, generator_version)
+			logic_grid = chunk_cache.load_chunk(chunk_coord, generator_version, settings_hash)
 		else:
 			cache_miss_count += 1
 			logic_grid = generate_chunk_logic_grid(chunk_coord)
-			chunk_cache.store_chunk(chunk_coord, generator_version, logic_grid)
+			chunk_cache.store_chunk(chunk_coord, generator_version, settings_hash, logic_grid)
 	else:
 		logic_grid = generate_chunk_logic_grid(chunk_coord)
 
+	var generated_chunk_data := make_generated_chunk_data(chunk_coord, logic_grid)
 	loaded_chunks[_chunk_key(chunk_coord)] = {
 		"coord": chunk_coord,
 		"generator_version": generator_version,
-		"logic_grid": logic_grid,
+		"generation_settings_hash": settings_hash,
+		"generated_chunk_data": generated_chunk_data,
 	}
 
 
@@ -162,28 +173,73 @@ func generate_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
 	return grid
 
 
+func make_generated_chunk_data(chunk_coord: Vector3i, logic_grid: Array) -> Dictionary:
+	return {
+		"product_type": "GeneratedChunkData",
+		"chunk_coord": chunk_coord,
+		"generator_version": generator_version,
+		"generation_settings_hash": generation_settings_hash(),
+		"logic_grid": logic_grid,
+	}
+
+
+func generation_settings_hash() -> int:
+	var h: int = 0x2d2816fe
+	h = _mix(h, world_seed)
+	h = _mix(h, generator_version)
+	h = _mix(h, chunk_size_cells)
+	h = _mix(h, wall_threshold_percent)
+	h = _mix(h, 1 if debug_force_chunk_border else 0)
+	return abs(h)
+
+
+func generation_diagnostics() -> Dictionary:
+	return {
+		"world_seed": world_seed,
+		"generator_version": generator_version,
+		"chunk_size_cells": chunk_size_cells,
+		"wall_threshold_percent": wall_threshold_percent,
+		"debug_force_chunk_border": debug_force_chunk_border,
+		"generation_settings_hash": generation_settings_hash(),
+	}
+
+
+func get_diagnostics() -> Dictionary:
+	return {
+		"pending_requests": pending_request_count(),
+		"loaded_chunks": loaded_chunk_count(),
+		"cache_entries": cache_entry_count(),
+		"cache_hits": cache_hit_count,
+		"cache_misses": cache_miss_count,
+		"completed_loads": completed_load_count,
+		"completed_unloads": completed_unload_count,
+		"async_provider_enabled": async_provider_enabled,
+		"provider_delay_frames": provider_delay_frames,
+		"generation": generation_diagnostics(),
+	}
+
+
 func _cell_is_wall(chunk_coord: Vector3i, cell: Vector2i, size: int) -> int:
-	if cell.x == 0 or cell.y == 0 or cell.x == size - 1 or cell.y == size - 1:
+	if (
+		debug_force_chunk_border
+		and (cell.x == 0 or cell.y == 0 or cell.x == size - 1 or cell.y == size - 1)
+	):
 		return 1
 
 	var local_noise: int = _noise_0_99(chunk_coord, cell)
-	var room_band: bool = (
-		abs(cell.x - cell.y) <= 1
-		and _noise_0_99(chunk_coord, Vector2i(cell.y, cell.x)) < 72
-	)
-	if room_band:
-		return 0
-
-	return 1 if local_noise < 34 else 0
+	return 1 if local_noise < clampi(wall_threshold_percent, 0, 100) else 0
 
 
 func _noise_0_99(chunk_coord: Vector3i, cell: Vector2i) -> int:
-	var h := int(generator_version) * 0x1f123bb5
+	var world_x: int = chunk_coord.x * chunk_size_cells + cell.x
+	var world_z: int = chunk_coord.z * chunk_size_cells + cell.y
+	var h: int = int(world_seed) * 0x1f123bb5
+	h = _mix(h, generator_version)
 	h = _mix(h, chunk_coord.x)
 	h = _mix(h, chunk_coord.y)
 	h = _mix(h, chunk_coord.z)
-	h = _mix(h, cell.x)
-	h = _mix(h, cell.y)
+	h = _mix(h, world_x)
+	h = _mix(h, world_z)
 	return abs(h) % 100
 
 
