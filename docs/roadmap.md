@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M5 are implemented in the current proof slice. M6-M17 are future work only.
+M0-M6 are implemented in the current proof slice. M7-M17 are future work only.
 
 ## Execution Rules
 
@@ -30,6 +30,7 @@ M0-M5 are implemented in the current proof slice. M6-M17 are future work only.
   `ChunkInstantiationPlan` explicit.
 - M4 adds a debug movement playground that drives streaming focus.
 - M5 proves authored tile-kit source archival and normalized GLB import.
+- M6 loads authored GLB meshes at runtime through `TileMeshCatalog`.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -42,6 +43,8 @@ Status: complete for the current proof. See `docs/tile-kit-import-proof.md`.
 - No authored rotated variants; rotations remain descriptor-driven.
 
 ## M6 - Runtime Authored Visuals
+
+Status: complete for the current proof. See `docs/runtime-authored-visuals.md`.
 
 - Load imported authored meshes through `TileMeshCatalog`.
 - Keep `ChunkVisualBuilder` as the runtime realization path.

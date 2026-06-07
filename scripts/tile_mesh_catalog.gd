@@ -1,13 +1,20 @@
 extends RefCounted
 
+const DEFAULT_TILEKIT_MANIFEST_PATH := "res://assets/tiles/dual_grid_tiles_manifest.json"
+
 var mesh_by_key: Dictionary = {}
 var material_by_key: Dictionary = {}
 var selected_variant: String = "default"
 var missing_asset_keys: Dictionary = {}
+var catalog_source: String = "fallback_boxes"
+var loaded_tilekit_path: String = ""
+var loaded_base_meshes: Array[String] = []
+var tilekit_load_errors: Array[String] = []
 
 
 func _init() -> void:
 	register_default_meshes()
+	load_authored_tilekit()
 
 
 func register_mesh(asset_key: String, mesh: Mesh) -> void:
@@ -92,6 +99,10 @@ func get_missing_asset_keys() -> Array:
 
 func get_diagnostics() -> Dictionary:
 	return {
+		"catalog_source": catalog_source,
+		"loaded_tilekit_path": loaded_tilekit_path,
+		"loaded_base_meshes": loaded_base_meshes,
+		"tilekit_load_errors": tilekit_load_errors,
 		"selected_variant": selected_variant,
 		"mesh_count": mesh_by_key.size(),
 		"material_count": material_by_key.size(),
@@ -102,6 +113,45 @@ func get_diagnostics() -> Dictionary:
 
 func clear_missing_asset_keys() -> void:
 	missing_asset_keys.clear()
+
+
+func load_authored_tilekit(manifest_path: String = DEFAULT_TILEKIT_MANIFEST_PATH) -> bool:
+	var manifest := _load_manifest(manifest_path)
+	if manifest.is_empty():
+		_record_tilekit_error("Tilekit manifest is missing or invalid: %s" % manifest_path)
+		return false
+
+	var tilekit_path: String = manifest.get("normalized_glb", "")
+	var base_meshes: Array = manifest.get("base_meshes", [])
+	if tilekit_path == "" or base_meshes.is_empty():
+		_record_tilekit_error("Tilekit manifest lacks normalized_glb or base_meshes")
+		return false
+
+	var root := _load_gltf_scene(tilekit_path)
+	if root == null:
+		_record_tilekit_error("Failed to load normalized tilekit GLB: %s" % tilekit_path)
+		return false
+
+	var loaded_meshes: Array[String] = []
+	for base_mesh in base_meshes:
+		var base_key := String(base_mesh)
+		var mesh_instance := _find_mesh_instance(root, base_key)
+		if mesh_instance == null or mesh_instance.mesh == null:
+			_record_tilekit_error("Missing normalized tilekit mesh: %s" % base_key)
+			root.free()
+			return false
+		register_mesh(base_key, mesh_instance.mesh.duplicate(true))
+		var material := _first_surface_material(mesh_instance.mesh)
+		if material != null:
+			register_material(base_key, material.duplicate(true))
+		loaded_meshes.append(base_key)
+
+	loaded_meshes.sort()
+	catalog_source = "authored_glb"
+	loaded_tilekit_path = tilekit_path
+	loaded_base_meshes = loaded_meshes
+	root.free()
+	return true
 
 
 func base_key_for_asset_key(asset_key: String) -> String:
@@ -171,3 +221,43 @@ func _variant_catalog_key(base_key: String, variant: String) -> String:
 
 func _record_missing_asset_key(asset_key: String) -> void:
 	missing_asset_keys[asset_key] = true
+
+
+func _load_manifest(manifest_path: String) -> Dictionary:
+	var text := FileAccess.get_file_as_string(manifest_path)
+	if text == "":
+		return {}
+	var data = JSON.parse_string(text)
+	if data is Dictionary:
+		return data
+	return {}
+
+
+func _load_gltf_scene(path: String) -> Node:
+	var document := GLTFDocument.new()
+	var state := GLTFState.new()
+	var append_error := document.append_from_file(path, state)
+	if append_error != OK:
+		_record_tilekit_error("GLTF append failed for %s: %s" % [path, append_error])
+		return null
+	return document.generate_scene(state)
+
+
+func _find_mesh_instance(root: Node, mesh_name: String) -> MeshInstance3D:
+	if root.name == mesh_name and root is MeshInstance3D:
+		return root as MeshInstance3D
+	for child in root.get_children():
+		var found := _find_mesh_instance(child, mesh_name)
+		if found != null:
+			return found
+	return null
+
+
+func _first_surface_material(mesh: Mesh) -> Material:
+	if mesh == null or mesh.get_surface_count() == 0:
+		return null
+	return mesh.surface_get_material(0)
+
+
+func _record_tilekit_error(message: String) -> void:
+	tilekit_load_errors.append(message)

@@ -22,9 +22,10 @@ register_material_variant(asset_key, variant, material)
 set_selected_variant(variant)
 ```
 
-If a variant is missing, the catalog falls back to the base mapping. If the base
-mapping is also missing, `get_mesh()` returns the debug fallback and records the
-missing descriptor key for validation.
+If a variant is missing, the catalog falls back to the base mapping loaded from
+the authored tile-kit GLB. If the base mapping is also missing, `get_mesh()`
+returns the debug fallback and records the missing descriptor key for
+validation.
 
 Validation reports are data-only:
 
@@ -44,4 +45,3 @@ Validation:
 ```text
 godot --headless --path . --script tests/catalog_variant_smoke.gd
 ```
-
