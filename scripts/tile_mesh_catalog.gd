@@ -6,6 +6,7 @@ var mesh_by_key: Dictionary = {}
 var material_by_key: Dictionary = {}
 var selected_variant: String = "default"
 var missing_asset_keys: Dictionary = {}
+var missing_material_keys: Dictionary = {}
 var catalog_source: String = "fallback_boxes"
 var loaded_tilekit_path: String = ""
 var loaded_base_meshes: Array[String] = []
@@ -48,6 +49,7 @@ func register_material_variant(asset_key: String, variant: String, material: Mat
 func get_material(asset_key: String) -> Material:
 	var material_key := _resolve_material_key(asset_key)
 	if material_key == "":
+		_record_missing_material_key(asset_key)
 		return material_by_key.get("debug")
 	return material_by_key.get(material_key)
 
@@ -63,6 +65,8 @@ func get_selected_variant() -> String:
 func validate_visual_plan(visual_plan: Dictionary) -> Dictionary:
 	var missing: Array[String] = []
 	var present: Array[String] = []
+	var missing_materials: Array[String] = []
+	var present_materials: Array[String] = []
 	var seen: Dictionary = {}
 	var tiles: Array = visual_plan.get("visual_tiles", visual_plan.get("tiles", []))
 
@@ -76,14 +80,22 @@ func validate_visual_plan(visual_plan: Dictionary) -> Dictionary:
 			present.append(asset_key)
 		else:
 			missing.append(asset_key)
+		if _resolve_material_key(asset_key) != "":
+			present_materials.append(asset_key)
+		else:
+			missing_materials.append(asset_key)
 
 	present.sort()
 	missing.sort()
+	present_materials.sort()
+	missing_materials.sort()
 	return {
-		"is_valid": missing.is_empty(),
+		"is_valid": missing.is_empty() and missing_materials.is_empty(),
 		"variant": selected_variant,
 		"present_asset_keys": present,
 		"missing_asset_keys": missing,
+		"present_material_keys": present_materials,
+		"missing_material_keys": missing_materials,
 	}
 
 
@@ -91,8 +103,18 @@ func missing_asset_key_count() -> int:
 	return missing_asset_keys.size()
 
 
+func missing_material_key_count() -> int:
+	return missing_material_keys.size()
+
+
 func get_missing_asset_keys() -> Array:
 	var keys := missing_asset_keys.keys()
+	keys.sort()
+	return keys
+
+
+func get_missing_material_keys() -> Array:
+	var keys := missing_material_keys.keys()
 	keys.sort()
 	return keys
 
@@ -108,11 +130,21 @@ func get_diagnostics() -> Dictionary:
 		"material_count": material_by_key.size(),
 		"missing_asset_key_count": missing_asset_key_count(),
 		"missing_asset_keys": get_missing_asset_keys(),
+		"missing_material_key_count": missing_material_key_count(),
+		"missing_material_keys": get_missing_material_keys(),
 	}
 
 
 func clear_missing_asset_keys() -> void:
 	missing_asset_keys.clear()
+	missing_material_keys.clear()
+
+
+func get_asset_report(visual_plan: Dictionary = {}) -> Dictionary:
+	var report := get_diagnostics()
+	if not visual_plan.is_empty():
+		report["visual_plan_validation"] = validate_visual_plan(visual_plan)
+	return report
 
 
 func load_authored_tilekit(manifest_path: String = DEFAULT_TILEKIT_MANIFEST_PATH) -> bool:
@@ -221,6 +253,10 @@ func _variant_catalog_key(base_key: String, variant: String) -> String:
 
 func _record_missing_asset_key(asset_key: String) -> void:
 	missing_asset_keys[asset_key] = true
+
+
+func _record_missing_material_key(asset_key: String) -> void:
+	missing_material_keys[asset_key] = true
 
 
 func _load_manifest(manifest_path: String) -> Dictionary:

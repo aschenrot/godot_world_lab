@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M6 are implemented in the current proof slice. M7-M17 are future work only.
+M0-M7 are implemented in the current proof slice. M8-M17 are future work only.
 
 ## Execution Rules
 
@@ -31,6 +31,7 @@ M0-M6 are implemented in the current proof slice. M7-M17 are future work only.
 - M4 adds a debug movement playground that drives streaming focus.
 - M5 proves authored tile-kit source archival and normalized GLB import.
 - M6 loads authored GLB meshes at runtime through `TileMeshCatalog`.
+- M7 adds observation previews for catalog and generated chunk products.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -55,6 +56,8 @@ Done when authored GLB meshes replace fallback debug meshes without changing
 `ChunkVisualPlan` or streaming lifecycle contracts.
 
 ## M7 - Observation / Editor Previews
+
+Status: complete for the current proof. See `docs/observation-previews.md`.
 
 - Add tile catalog preview.
 - Add generated chunk preview.
