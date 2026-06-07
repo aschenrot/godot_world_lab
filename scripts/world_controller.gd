@@ -3,6 +3,7 @@ extends Node3D
 @export var chunk_edge_meters: float = 32.0
 @export var load_radius_chunks: int = 4
 @export var unload_radius_chunks: int = 6
+@export var max_pooled_visual_roots: int = 64
 
 @onready var player_or_camera: Node3D = $PlayerOrCamera
 @onready var chunk_root_container: Node3D = $ChunkRootContainer
@@ -13,6 +14,9 @@ var debug_overlay: Node
 var chunk_visual_builder: RefCounted
 var tile_mesh_catalog: RefCounted
 var visual_chunk_roots: Dictionary = {}
+var visual_root_pool: Array[Node3D] = []
+var pooled_visual_root_total: int = 0
+var reused_visual_root_total: int = 0
 
 
 func _ready() -> void:
@@ -82,7 +86,8 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 		visual_plan,
 		tile_mesh_catalog,
 		chunk_edge_meters,
-		chunk_provider.chunk_size_cells
+		chunk_provider.chunk_size_cells,
+		_take_pooled_visual_root()
 	)
 	visual_root.position = Vector3(
 		float(x) * chunk_edge_meters,
@@ -95,9 +100,14 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 
 func _on_chunk_unloaded(x: int, y: int, z: int) -> void:
 	var key := _chunk_key(Vector3i(x, y, z))
-	var root: Node = visual_chunk_roots.get(key)
+	var root: Node3D = visual_chunk_roots.get(key)
 	if root != null:
-		root.queue_free()
+		if root.get_parent() != null:
+			root.get_parent().remove_child(root)
+		var pool_size_before := visual_root_pool.size()
+		chunk_visual_builder.destroy_or_pool(root, visual_root_pool, max_pooled_visual_roots)
+		if visual_root_pool.size() > pool_size_before:
+			pooled_visual_root_total += 1
 	visual_chunk_roots.erase(key)
 
 
@@ -109,6 +119,37 @@ func visual_chunk_keys() -> Array:
 	var keys := visual_chunk_roots.keys()
 	keys.sort()
 	return keys
+
+
+func visual_root_pool_size() -> int:
+	return visual_root_pool.size()
+
+
+func pooled_visual_root_count() -> int:
+	return pooled_visual_root_total
+
+
+func reused_visual_root_count() -> int:
+	return reused_visual_root_total
+
+
+func visual_roots_have_matching_metadata() -> bool:
+	for key in visual_chunk_roots:
+		var root: Node3D = visual_chunk_roots[key]
+		if root == null:
+			return false
+		if not root.has_meta("chunk_coord"):
+			return false
+		if _chunk_key(root.get_meta("chunk_coord")) != key:
+			return false
+	return true
+
+
+func _take_pooled_visual_root() -> Node3D:
+	if visual_root_pool.is_empty():
+		return null
+	reused_visual_root_total += 1
+	return visual_root_pool.pop_back()
 
 
 func _chunk_key(chunk_coord: Vector3i) -> String:

@@ -45,9 +45,15 @@ func build_chunk_visual(
 	visual_plan: Dictionary,
 	catalog: RefCounted,
 	chunk_edge_meters: float,
-	cells_per_chunk: int
+	cells_per_chunk: int,
+	pooled_root: Node3D = null
 ) -> Node3D:
-	var root := Node3D.new()
+	var root: Node3D = pooled_root
+	if root == null:
+		root = Node3D.new()
+	else:
+		_clear_children(root)
+
 	root.name = "ChunkVisual_%s_%s_%s" % [chunk_coord.x, chunk_coord.y, chunk_coord.z]
 	root.set_meta("chunk_coord", chunk_coord)
 
@@ -89,6 +95,23 @@ func build_chunk_visual(
 	return root
 
 
+func destroy_or_pool(chunk_root: Node3D, pool: Array[Node3D], max_pool_size: int) -> void:
+	if chunk_root == null:
+		return
+
+	_clear_children(chunk_root)
+	chunk_root.name = "PooledChunkVisual"
+	chunk_root.position = Vector3.ZERO
+	chunk_root.rotation = Vector3.ZERO
+	chunk_root.scale = Vector3.ONE
+	chunk_root.remove_meta("chunk_coord")
+
+	if pool.size() < max_pool_size:
+		pool.append(chunk_root)
+	else:
+		chunk_root.free()
+
+
 func update_dirty_cell(_chunk_root: Node3D, _logic_grid: Variant, _cell_coord: Vector2i) -> void:
 	pass
 
@@ -119,3 +142,9 @@ func _tile_transform(tile_data: Dictionary, cell_size_meters: float) -> Transfor
 	var basis := Basis(Vector3.UP, deg_to_rad(float(rotation_degrees_cw)))
 	basis = basis.scaled(Vector3(cell_size_meters, 1.0, cell_size_meters))
 	return Transform3D(basis, origin)
+
+
+func _clear_children(root: Node3D) -> void:
+	for child in root.get_children():
+		root.remove_child(child)
+		child.free()
