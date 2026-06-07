@@ -1,0 +1,8 @@
+/.godot/
+/addons/godot_grid/bin/*
+/addons/godot_world_streaming/bin/*
+!/addons/godot_grid/bin/.gitkeep
+!/addons/godot_world_streaming/bin/.gitkeep
+*.tmp
+*.translation
+

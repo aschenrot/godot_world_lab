@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world_controller.gd" id="1_world_controller"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_world_controller")
+
+[node name="PlayerOrCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 36, 48)
+current = true
+
+[node name="ChunkRootContainer" type="Node3D" parent="."]
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 16, 0)
+
