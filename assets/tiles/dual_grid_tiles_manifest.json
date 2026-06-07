@@ -1,0 +1,25 @@
+{
+  "schema": "crystonix.godot_world_lab.tilekit.v1",
+  "source_blend": "res://assets/source/tiles/dual_grid_tiles.blend",
+  "headless_source_gltf": "res://assets/source/tiles/dual_grid_tiles_source.gltf",
+  "normalized_glb": "res://assets/tiles/dual_grid_tiles.glb",
+  "base_meshes": [
+    "corner",
+    "edge",
+    "t",
+    "diagonal",
+    "full",
+    "debug"
+  ],
+  "authored_name_map": {
+    "corner": "corner",
+    "edge": "edge",
+    "T": "t",
+    "diagonal_corner": "diagonal",
+    "full": "full"
+  },
+  "generated_normalized_meshes": {
+    "debug": "Generated during normalization as the lab fallback mesh when the authored kit omits a debug mesh."
+  },
+  "authored_rotated_variants": false
+}

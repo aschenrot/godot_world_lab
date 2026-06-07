@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M4 are implemented in the current proof slice. M5-M17 are future work only.
+M0-M5 are implemented in the current proof slice. M6-M17 are future work only.
 
 ## Execution Rules
 
@@ -29,8 +29,11 @@ M0-M4 are implemented in the current proof slice. M5-M17 are future work only.
 - M3 makes `GeneratedChunkData`, `ChunkVisualPlan`, and
   `ChunkInstantiationPlan` explicit.
 - M4 adds a debug movement playground that drives streaming focus.
+- M5 proves authored tile-kit source archival and normalized GLB import.
 
 ## M5 - Tile-Kit Authoring / Import Proof
+
+Status: complete for the current proof. See `docs/tile-kit-import-proof.md`.
 
 - Add `assets/source/tiles/dual_grid_tiles.blend`.
 - Add `assets/tiles/dual_grid_tiles.glb`.
