@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M13 are implemented in the current proof slice. M14-M17 are future work only.
+M0-M14 are implemented in the current proof slice. M15-M17 are future work only.
 
 ## Execution Rules
 
@@ -40,6 +40,8 @@ M0-M13 are implemented in the current proof slice. M14-M17 are future work only.
   objects before any reusable code is moved.
 - M13 extracts only payload-neutral spatial hash helpers into
   `spatial_streaming/crates/spatial/src/hash`.
+- M14 keeps the Godot lab generator in the lab and documents the blocked
+  extraction gate for `grid_generation`.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -146,8 +148,15 @@ markers, tile descriptors, SDF, ECS, assets, providers, or Runenwerk semantics.
 
 ## M14 - Extract Reusable Generation Only If Stable
 
+Status: complete for the current proof. Extraction is deliberately deferred.
+
 - Likely location: `grid/crates/grid_generation`.
 - Do not include Godot or Runenwerk semantics.
+
+`Crystonix/grid` already contains optional neutral `grid_generation` helpers,
+but the Godot lab generator is still lab-specific. It is not moved until a
+neutral cell schema, typed settings contract, deterministic tests, and a second
+consumer need prove the reusable boundary.
 
 ## M15 - Asset Extraction Decision
 
