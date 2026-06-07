@@ -17,6 +17,7 @@ var debug_overlay: Node
 var chunk_visual_builder: RefCounted
 var chunk_collision_builder: RefCounted
 var placed_object_layer: RefCounted
+var chunk_overlay_sandbox: RefCounted
 var tile_mesh_catalog: RefCounted
 var visual_chunk_roots: Dictionary = {}
 var visual_root_pool: Array[Node3D] = []
@@ -87,10 +88,12 @@ func _install_support_nodes() -> void:
 	var builder_script := load("res://scripts/chunk_visual_builder.gd")
 	var collision_builder_script := load("res://scripts/collision/chunk_collision_builder.gd")
 	var placed_layer_script := load("res://scripts/placed/placed_object_layer.gd")
+	var overlay_sandbox_script := load("res://scripts/overlays/chunk_overlay_sandbox.gd")
 	var catalog_script := load("res://scripts/tile_mesh_catalog.gd")
 	chunk_visual_builder = builder_script.new()
 	chunk_collision_builder = collision_builder_script.new()
 	placed_object_layer = placed_layer_script.new()
+	chunk_overlay_sandbox = overlay_sandbox_script.new()
 	tile_mesh_catalog = catalog_script.new()
 
 
@@ -130,6 +133,7 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 	)
 	_add_collision_if_enabled(visual_root, chunk_coord, visual_plan)
 	_add_placed_objects_if_enabled(visual_root, chunk_coord)
+	_apply_overlay(visual_root, chunk_coord)
 	visual_root.position = Vector3(
 		float(x) * chunk_edge_meters,
 		float(y) * chunk_edge_meters,
@@ -204,6 +208,8 @@ func get_runtime_diagnostics() -> Dictionary:
 		"collision_shapes": collision_shape_count(),
 		"placed_layers": placed_layer_count(),
 		"placed_objects": placed_object_count(),
+		"overlay_chunks": overlay_chunk_count(),
+		"overlay_nodes": overlay_node_count(),
 		"pooled_roots": visual_root_pool_size(),
 		"reused_roots": reused_visual_root_count(),
 		"cache_hits": provider_diagnostics.get("cache_hits", 0),
@@ -257,6 +263,44 @@ func placed_object_count() -> int:
 		if layer != null:
 			total += layer.get_child_count()
 	return total
+
+
+func set_chunk_overlay_value(chunk_coord: Vector3i, key: String, value) -> void:
+	if chunk_overlay_sandbox == null:
+		return
+	chunk_overlay_sandbox.set_overlay_value(chunk_coord, key, value)
+	var root := get_visual_chunk_root(chunk_coord)
+	if root != null:
+		_apply_overlay(root, chunk_coord)
+
+
+func get_chunk_overlay_value(chunk_coord: Vector3i, key: String, default_value = null):
+	if chunk_overlay_sandbox == null:
+		return default_value
+	return chunk_overlay_sandbox.get_overlay_value(chunk_coord, key, default_value)
+
+
+func overlay_chunk_count() -> int:
+	if chunk_overlay_sandbox == null:
+		return 0
+	return chunk_overlay_sandbox.overlay_entry_count()
+
+
+func overlay_node_count() -> int:
+	var total := 0
+	for key in visual_chunk_roots:
+		var root: Node3D = visual_chunk_roots[key]
+		if _find_child_node(root, "ChunkOverlay") != null:
+			total += 1
+	return total
+
+
+func has_visual_chunk(chunk_coord: Vector3i) -> bool:
+	return visual_chunk_roots.has(_chunk_key(chunk_coord))
+
+
+func get_visual_chunk_root(chunk_coord: Vector3i) -> Node3D:
+	return visual_chunk_roots.get(_chunk_key(chunk_coord))
 
 
 func visual_roots_have_matching_metadata() -> bool:
@@ -325,6 +369,12 @@ func _add_placed_objects_if_enabled(visual_root: Node3D, chunk_coord: Vector3i) 
 	visual_root.add_child(layer)
 
 
+func _apply_overlay(visual_root: Node3D, chunk_coord: Vector3i) -> void:
+	if chunk_overlay_sandbox == null:
+		return
+	chunk_overlay_sandbox.apply_overlay_to_chunk_root(visual_root, chunk_coord)
+
+
 func _find_collision_body(root: Node3D) -> StaticBody3D:
 	if root == null:
 		return null
@@ -340,6 +390,15 @@ func _find_placed_layer(root: Node3D) -> Node3D:
 	for child in root.get_children():
 		if child is Node3D and child.name == "PlacedObjectLayer":
 			return child as Node3D
+	return null
+
+
+func _find_child_node(root: Node3D, child_name: String) -> Node:
+	if root == null:
+		return null
+	for child in root.get_children():
+		if child.name == child_name:
+			return child
 	return null
 
 

@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M9 are implemented in the current proof slice. M10-M17 are future work only.
+M0-M10 are implemented in the current proof slice. M11-M17 are future work only.
 
 ## Execution Rules
 
@@ -34,6 +34,7 @@ M0-M9 are implemented in the current proof slice. M10-M17 are future work only.
 - M7 adds observation previews for catalog and generated chunk products.
 - M8 adds chunk-owned box collision derived from visual descriptors.
 - M9 adds a placed object layer separate from terrain topology.
+- M10 adds in-memory chunk overlays that survive unload/reload.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -92,6 +93,8 @@ Done when terrain tiles and placed objects can be rebuilt independently inside a
 resident chunk.
 
 ## M10 - Chunk Overlay Sandbox
+
+Status: complete for the current proof. See `docs/chunk-overlay-sandbox.md`.
 
 - Support chunk-local overlays that survive unload/reload inside the lab
   session.
