@@ -6,6 +6,7 @@ extends Node3D
 @export var max_pooled_visual_roots: int = 64
 @export var focus_target_path: NodePath
 @export var chunk_root_container_path: NodePath
+@export var enable_collision_prototype: bool = true
 
 var player_or_camera: Node3D
 var chunk_root_container: Node3D
@@ -13,6 +14,7 @@ var streaming_node: Node
 var chunk_provider: Node
 var debug_overlay: Node
 var chunk_visual_builder: RefCounted
+var chunk_collision_builder: RefCounted
 var tile_mesh_catalog: RefCounted
 var visual_chunk_roots: Dictionary = {}
 var visual_root_pool: Array[Node3D] = []
@@ -81,8 +83,10 @@ func _install_support_nodes() -> void:
 		streaming_node.chunk_unloaded.connect(_on_chunk_unloaded)
 
 	var builder_script := load("res://scripts/chunk_visual_builder.gd")
+	var collision_builder_script := load("res://scripts/collision/chunk_collision_builder.gd")
 	var catalog_script := load("res://scripts/tile_mesh_catalog.gd")
 	chunk_visual_builder = builder_script.new()
+	chunk_collision_builder = collision_builder_script.new()
 	tile_mesh_catalog = catalog_script.new()
 
 
@@ -120,6 +124,7 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 		chunk_provider.chunk_size_cells,
 		_take_pooled_visual_root()
 	)
+	_add_collision_if_enabled(visual_root, chunk_coord, visual_plan)
 	visual_root.position = Vector3(
 		float(x) * chunk_edge_meters,
 		float(y) * chunk_edge_meters,
@@ -190,6 +195,8 @@ func get_runtime_diagnostics() -> Dictionary:
 		),
 		"loaded_chunks": provider_diagnostics.get("loaded_chunks", 0),
 		"visual_roots": visual_chunk_count(),
+		"collision_bodies": collision_body_count(),
+		"collision_shapes": collision_shape_count(),
 		"pooled_roots": visual_root_pool_size(),
 		"reused_roots": reused_visual_root_count(),
 		"cache_hits": provider_diagnostics.get("cache_hits", 0),
@@ -206,7 +213,25 @@ func get_runtime_diagnostics() -> Dictionary:
 		"last_visual_plan": last_visual_plan_diagnostics,
 		"last_instantiation_plan": last_instantiation_plan_diagnostics,
 		"visual_roots_have_matching_metadata": visual_roots_have_matching_metadata(),
-	}
+}
+
+
+func collision_body_count() -> int:
+	var total := 0
+	for key in visual_chunk_roots:
+		var root: Node3D = visual_chunk_roots[key]
+		if _find_collision_body(root) != null:
+			total += 1
+	return total
+
+
+func collision_shape_count() -> int:
+	var total := 0
+	for key in visual_chunk_roots:
+		var body := _find_collision_body(visual_chunk_roots[key])
+		if body != null:
+			total += int(body.get_meta("collision_shape_count", 0))
+	return total
 
 
 func visual_roots_have_matching_metadata() -> bool:
@@ -242,6 +267,31 @@ func _take_pooled_visual_root() -> Node3D:
 		return null
 	reused_visual_root_total += 1
 	return visual_root_pool.pop_back()
+
+
+func _add_collision_if_enabled(
+	visual_root: Node3D,
+	chunk_coord: Vector3i,
+	visual_plan: Dictionary
+) -> void:
+	if not enable_collision_prototype or chunk_collision_builder == null:
+		return
+	var collision_body: StaticBody3D = chunk_collision_builder.build_chunk_collision(
+		chunk_coord,
+		visual_plan,
+		chunk_edge_meters,
+		chunk_provider.chunk_size_cells
+	)
+	visual_root.add_child(collision_body)
+
+
+func _find_collision_body(root: Node3D) -> StaticBody3D:
+	if root == null:
+		return null
+	for child in root.get_children():
+		if child is StaticBody3D and child.name == "ChunkCollision":
+			return child as StaticBody3D
+	return null
 
 
 func _chunk_key(chunk_coord: Vector3i) -> String:
