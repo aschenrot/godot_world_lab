@@ -44,12 +44,12 @@ The blockers are:
 
 ## M15 Direction
 
-The best long-term M15 decision is:
+The M15 decision is:
 
 ```text
-Keep asset extraction deferred.
-Keep the tilekit manifest as the stable contract.
-Add adapter tools only where they consume this manifest without owning runtime
+Use tilekit manifest only.
+Do not create Crystonix/asset.
+Add adapter tools only where they consume the manifest without owning runtime
 world truth.
 ```
 

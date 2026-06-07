@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M14 are implemented in the current proof slice. M15-M17 are future work only.
+M0-M15 are implemented in the current proof slice. M16-M17 are future work only.
 
 ## Execution Rules
 
@@ -42,6 +42,8 @@ M0-M14 are implemented in the current proof slice. M15-M17 are future work only.
   `spatial_streaming/crates/spatial/src/hash`.
 - M14 keeps the Godot lab generator in the lab and documents the blocked
   extraction gate for `grid_generation`.
+- M15 chooses the tilekit manifest as the asset contract and explicitly defers
+  any `Crystonix/asset` repository or asset crates.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -160,11 +162,16 @@ consumer need prove the reusable boundary.
 
 ## M15 - Asset Extraction Decision
 
+Status: complete for the current proof. Decision: tilekit manifest only.
+
 - Do not automatically create `Crystonix/asset`.
 - Choose one of:
   - no extraction
   - tilekit manifest only
   - minimal `asset_core` + `asset_tilekit`
+
+The manifest remains the stable contract. Godot resources, catalog previews,
+fallback meshes, materials, and future adapter tools stay in `godot_world_lab`.
 
 ## M16 - Godot Asset Adapter Only If Asset Contracts Exist
 
