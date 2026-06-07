@@ -46,6 +46,7 @@ func _process(_delta: float) -> bool:
 		_assert(main_scene.visual_roots_have_matching_metadata(), "visual root metadata matches keys")
 		_assert(main_scene.chunk_provider.pending_request_count() == 0, "provider pending work is drained")
 		_assert(main_scene.streaming_node.pending_request_count() == 0, "controller pending work is drained")
+		main_scene.clear_visual_roots_for_shutdown()
 		quit(1 if failed else 0)
 		return true
 

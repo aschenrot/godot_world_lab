@@ -145,6 +145,22 @@ func visual_roots_have_matching_metadata() -> bool:
 	return true
 
 
+func clear_visual_roots_for_shutdown() -> void:
+	for key in visual_chunk_roots.keys():
+		var active_root: Node3D = visual_chunk_roots[key]
+		if active_root == null:
+			continue
+		if active_root.get_parent() != null:
+			active_root.get_parent().remove_child(active_root)
+		active_root.free()
+	visual_chunk_roots.clear()
+
+	for pooled_root in visual_root_pool:
+		if pooled_root != null:
+			pooled_root.free()
+	visual_root_pool.clear()
+
+
 func _take_pooled_visual_root() -> Node3D:
 	if visual_root_pool.is_empty():
 		return null
