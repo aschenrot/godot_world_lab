@@ -5,6 +5,11 @@ extends Node
 @export var world_seed: int = 1337
 @export_range(0, 100, 1) var wall_threshold_percent: int = 34
 @export var debug_force_chunk_border: bool = false
+@export_range(0, 4, 1) var smoothing_passes: int = 1
+@export_range(0, 8, 1) var room_attempts: int = 3
+@export_range(2, 12, 1) var room_min_size: int = 3
+@export_range(2, 16, 1) var room_max_size: int = 6
+@export var debug_generation_markers_enabled: bool = true
 @export var async_provider_enabled: bool = false
 @export var provider_delay_frames: int = 0
 @export var use_chunk_cache: bool = false
@@ -138,10 +143,10 @@ func _load_chunk_content(chunk_coord: Vector3i) -> void:
 			logic_grid = chunk_cache.load_chunk(chunk_coord, generator_version, settings_hash)
 		else:
 			cache_miss_count += 1
-			logic_grid = generate_chunk_logic_grid(chunk_coord)
+			logic_grid = generate_chunk_generation_result(chunk_coord)["logic_grid"]
 			chunk_cache.store_chunk(chunk_coord, generator_version, settings_hash, logic_grid)
 	else:
-		logic_grid = generate_chunk_logic_grid(chunk_coord)
+		logic_grid = generate_chunk_generation_result(chunk_coord)["logic_grid"]
 
 	var generated_chunk_data := make_generated_chunk_data(chunk_coord, logic_grid)
 	loaded_chunks[_chunk_key(chunk_coord)] = {
@@ -160,16 +165,46 @@ func _ensure_cache() -> void:
 
 
 func generate_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
-	var grid: Array = []
-	var size: int = maxi(chunk_size_cells, 4)
+	return generate_chunk_generation_result(chunk_coord)["logic_grid"]
 
+
+func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
+	var size: int = maxi(chunk_size_cells, 4)
+	var grid := _generate_smoothed_grid(chunk_coord, size)
+	var debug_markers: Array = []
+	_carve_rooms_and_paths(chunk_coord, grid, debug_markers)
+
+	if debug_force_chunk_border:
+		_apply_forced_chunk_border(grid)
+
+	return {
+		"logic_grid": grid,
+		"debug_markers": debug_markers if debug_generation_markers_enabled else [],
+	}
+
+
+func generate_chunk_debug_markers(chunk_coord: Vector3i) -> Array:
+	return generate_chunk_generation_result(chunk_coord)["debug_markers"]
+
+
+func _generate_smoothed_grid(chunk_coord: Vector3i, size: int) -> Array:
+	var margin: int = maxi(smoothing_passes, 0)
+	var expanded: Array = []
+	for local_y in range(-margin, size + margin):
+		var row: Array = []
+		for local_x in range(-margin, size + margin):
+			row.append(_initial_cell_is_wall(chunk_coord, Vector2i(local_x, local_y)))
+		expanded.append(row)
+
+	for pass_index in range(margin):
+		expanded = _smooth_expanded_grid(expanded)
+
+	var grid: Array = []
 	for y in range(size):
 		var row: Array = []
 		for x in range(size):
-			var cell := Vector2i(x, y)
-			row.append(_cell_is_wall(chunk_coord, cell, size))
+			row.append(expanded[y + margin][x + margin])
 		grid.append(row)
-
 	return grid
 
 
@@ -180,6 +215,8 @@ func make_generated_chunk_data(chunk_coord: Vector3i, logic_grid: Array) -> Dict
 		"generator_version": generator_version,
 		"generation_settings_hash": generation_settings_hash(),
 		"logic_grid": logic_grid,
+		"debug_markers": generate_chunk_debug_markers(chunk_coord),
+		"generation_settings": generation_diagnostics(),
 	}
 
 
@@ -190,6 +227,11 @@ func generation_settings_hash() -> int:
 	h = _mix(h, chunk_size_cells)
 	h = _mix(h, wall_threshold_percent)
 	h = _mix(h, 1 if debug_force_chunk_border else 0)
+	h = _mix(h, smoothing_passes)
+	h = _mix(h, room_attempts)
+	h = _mix(h, room_min_size)
+	h = _mix(h, room_max_size)
+	h = _mix(h, 1 if debug_generation_markers_enabled else 0)
 	return abs(h)
 
 
@@ -200,6 +242,11 @@ func generation_diagnostics() -> Dictionary:
 		"chunk_size_cells": chunk_size_cells,
 		"wall_threshold_percent": wall_threshold_percent,
 		"debug_force_chunk_border": debug_force_chunk_border,
+		"smoothing_passes": smoothing_passes,
+		"room_attempts": room_attempts,
+		"room_min_size": room_min_size,
+		"room_max_size": room_max_size,
+		"debug_generation_markers_enabled": debug_generation_markers_enabled,
 		"generation_settings_hash": generation_settings_hash(),
 	}
 
@@ -226,21 +273,124 @@ func _cell_is_wall(chunk_coord: Vector3i, cell: Vector2i, size: int) -> int:
 	):
 		return 1
 
-	var local_noise: int = _noise_0_99(chunk_coord, cell)
+	return _initial_cell_is_wall(chunk_coord, cell)
+
+
+func _initial_cell_is_wall(chunk_coord: Vector3i, cell: Vector2i) -> int:
+	var world_x: int = chunk_coord.x * chunk_size_cells + cell.x
+	var world_z: int = chunk_coord.z * chunk_size_cells + cell.y
+	var local_noise: int = _noise_world_0_99(world_x, world_z)
 	return 1 if local_noise < clampi(wall_threshold_percent, 0, 100) else 0
 
 
 func _noise_0_99(chunk_coord: Vector3i, cell: Vector2i) -> int:
 	var world_x: int = chunk_coord.x * chunk_size_cells + cell.x
 	var world_z: int = chunk_coord.z * chunk_size_cells + cell.y
-	var h: int = int(world_seed) * 0x1f123bb5
+	return _noise_world_0_99(world_x, world_z)
+
+
+func _noise_world_0_99(world_x: int, world_z: int) -> int:
+	var h: int = _mix(0x1f123bb5, world_seed)
 	h = _mix(h, generator_version)
-	h = _mix(h, chunk_coord.x)
-	h = _mix(h, chunk_coord.y)
-	h = _mix(h, chunk_coord.z)
 	h = _mix(h, world_x)
 	h = _mix(h, world_z)
-	return abs(h) % 100
+	return abs(_finalize_hash(h)) % 100
+
+
+func _smooth_expanded_grid(grid: Array) -> Array:
+	var height := grid.size()
+	var width := int(grid[0].size()) if height > 0 else 0
+	var next_grid := grid.duplicate(true)
+	for y in range(1, height - 1):
+		for x in range(1, width - 1):
+			var wall_count := 0
+			for offset_y in range(-1, 2):
+				for offset_x in range(-1, 2):
+					if offset_x == 0 and offset_y == 0:
+						continue
+					wall_count += int(grid[y + offset_y][x + offset_x])
+			next_grid[y][x] = 1 if wall_count >= 5 else 0
+	return next_grid
+
+
+func _carve_rooms_and_paths(chunk_coord: Vector3i, grid: Array, debug_markers: Array) -> void:
+	var rooms := _room_rects_for_chunk(chunk_coord, grid.size())
+	var centers: Array[Vector2i] = []
+	for room in rooms:
+		var rect: Rect2i = room
+		_carve_rect(grid, rect)
+		var center := rect.position + Vector2i(rect.size.x / 2, rect.size.y / 2)
+		centers.append(center)
+		debug_markers.append({
+			"type": "room",
+			"chunk_coord": chunk_coord,
+			"rect_position": rect.position,
+			"rect_size": rect.size,
+			"center": center,
+		})
+
+	for index in range(1, centers.size()):
+		_carve_path(grid, centers[index - 1], centers[index])
+		debug_markers.append({
+			"type": "path",
+			"chunk_coord": chunk_coord,
+			"from": centers[index - 1],
+			"to": centers[index],
+		})
+
+
+func _room_rects_for_chunk(chunk_coord: Vector3i, size: int) -> Array:
+	var rects: Array[Rect2i] = []
+	var clamped_min := clampi(room_min_size, 2, size)
+	var clamped_max := clampi(maxi(room_max_size, clamped_min), clamped_min, size)
+	for index in range(maxi(room_attempts, 0)):
+		var seed := _mix(_mix(_mix(world_seed, generator_version), chunk_coord.x), chunk_coord.z)
+		seed = _mix(seed, index)
+		var width := _range_from_hash(_mix(seed, 11), clamped_min, clamped_max)
+		var height := _range_from_hash(_mix(seed, 17), clamped_min, clamped_max)
+		var max_x := maxi(size - width - 1, 1)
+		var max_y := maxi(size - height - 1, 1)
+		var x := _range_from_hash(_mix(seed, 23), 1, max_x)
+		var y := _range_from_hash(_mix(seed, 29), 1, max_y)
+		rects.append(Rect2i(Vector2i(x, y), Vector2i(width, height)))
+	return rects
+
+
+func _range_from_hash(hash_value: int, min_value: int, max_value: int) -> int:
+	if max_value <= min_value:
+		return min_value
+	return min_value + abs(_finalize_hash(hash_value)) % (max_value - min_value + 1)
+
+
+func _carve_rect(grid: Array, rect: Rect2i) -> void:
+	for y in range(rect.position.y, rect.position.y + rect.size.y):
+		for x in range(rect.position.x, rect.position.x + rect.size.x):
+			if _grid_contains(grid, x, y):
+				grid[y][x] = 0
+
+
+func _carve_path(grid: Array, start: Vector2i, end: Vector2i) -> void:
+	var x_step := 1 if end.x >= start.x else -1
+	for x in range(start.x, end.x + x_step, x_step):
+		if _grid_contains(grid, x, start.y):
+			grid[start.y][x] = 0
+	var y_step := 1 if end.y >= start.y else -1
+	for y in range(start.y, end.y + y_step, y_step):
+		if _grid_contains(grid, end.x, y):
+			grid[y][end.x] = 0
+
+
+func _apply_forced_chunk_border(grid: Array) -> void:
+	var size := grid.size()
+	for i in range(size):
+		grid[0][i] = 1
+		grid[size - 1][i] = 1
+		grid[i][0] = 1
+		grid[i][size - 1] = 1
+
+
+func _grid_contains(grid: Array, x: int, y: int) -> bool:
+	return y >= 0 and y < grid.size() and x >= 0 and x < int(grid[y].size())
 
 
 func _mix(seed: int, value: int) -> int:
@@ -248,6 +398,16 @@ func _mix(seed: int, value: int) -> int:
 	h = h ^ (h >> 16)
 	h *= 0x45d9f3b
 	h = h ^ (h >> 16)
+	return h
+
+
+func _finalize_hash(value: int) -> int:
+	var h := value
+	h = h ^ (h >> 15)
+	h *= 0x2c1b3c6d
+	h = h ^ (h >> 12)
+	h *= 0x297a2d39
+	h = h ^ (h >> 15)
 	return h
 
 

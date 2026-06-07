@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M10 are implemented in the current proof slice. M11-M17 are future work only.
+M0-M11 are implemented in the current proof slice. M12-M17 are future work only.
 
 ## Execution Rules
 
@@ -35,6 +35,7 @@ M0-M10 are implemented in the current proof slice. M11-M17 are future work only.
 - M8 adds chunk-owned box collision derived from visual descriptors.
 - M9 adds a placed object layer separate from terrain topology.
 - M10 adds in-memory chunk overlays that survive unload/reload.
+- M11 improves lab generation quality and cache/version diagnostics.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -104,6 +105,8 @@ Done when overlays survive lab unload/reload through an in-memory session store,
 and the roadmap still explicitly defers durable save/load.
 
 ## M11 - Procedural Generation Quality Pass
+
+Status: complete for the current proof. See `docs/procedural-generation-quality.md`.
 
 - Improve hash/noise quality.
 - Add smoothing.
