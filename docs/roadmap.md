@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M8 are implemented in the current proof slice. M9-M17 are future work only.
+M0-M9 are implemented in the current proof slice. M10-M17 are future work only.
 
 ## Execution Rules
 
@@ -33,6 +33,7 @@ M0-M8 are implemented in the current proof slice. M9-M17 are future work only.
 - M6 loads authored GLB meshes at runtime through `TileMeshCatalog`.
 - M7 adds observation previews for catalog and generated chunk products.
 - M8 adds chunk-owned box collision derived from visual descriptors.
+- M9 adds a placed object layer separate from terrain topology.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -80,6 +81,8 @@ Done when collision is built from formed visual/topology data and unloaded with
 the chunk root, without leaking collision nodes across stream-out.
 
 ## M9 - Placed Asset Layer
+
+Status: complete for the current proof. See `docs/placed-object-layer.md`.
 
 - Add `PlacedObjectLayer`.
 - Add `PlacedObjectDescriptor`.

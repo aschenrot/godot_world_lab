@@ -7,6 +7,7 @@ extends Node3D
 @export var focus_target_path: NodePath
 @export var chunk_root_container_path: NodePath
 @export var enable_collision_prototype: bool = true
+@export var enable_placed_asset_prototype: bool = true
 
 var player_or_camera: Node3D
 var chunk_root_container: Node3D
@@ -15,6 +16,7 @@ var chunk_provider: Node
 var debug_overlay: Node
 var chunk_visual_builder: RefCounted
 var chunk_collision_builder: RefCounted
+var placed_object_layer: RefCounted
 var tile_mesh_catalog: RefCounted
 var visual_chunk_roots: Dictionary = {}
 var visual_root_pool: Array[Node3D] = []
@@ -84,9 +86,11 @@ func _install_support_nodes() -> void:
 
 	var builder_script := load("res://scripts/chunk_visual_builder.gd")
 	var collision_builder_script := load("res://scripts/collision/chunk_collision_builder.gd")
+	var placed_layer_script := load("res://scripts/placed/placed_object_layer.gd")
 	var catalog_script := load("res://scripts/tile_mesh_catalog.gd")
 	chunk_visual_builder = builder_script.new()
 	chunk_collision_builder = collision_builder_script.new()
+	placed_object_layer = placed_layer_script.new()
 	tile_mesh_catalog = catalog_script.new()
 
 
@@ -125,6 +129,7 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 		_take_pooled_visual_root()
 	)
 	_add_collision_if_enabled(visual_root, chunk_coord, visual_plan)
+	_add_placed_objects_if_enabled(visual_root, chunk_coord)
 	visual_root.position = Vector3(
 		float(x) * chunk_edge_meters,
 		float(y) * chunk_edge_meters,
@@ -197,6 +202,8 @@ func get_runtime_diagnostics() -> Dictionary:
 		"visual_roots": visual_chunk_count(),
 		"collision_bodies": collision_body_count(),
 		"collision_shapes": collision_shape_count(),
+		"placed_layers": placed_layer_count(),
+		"placed_objects": placed_object_count(),
 		"pooled_roots": visual_root_pool_size(),
 		"reused_roots": reused_visual_root_count(),
 		"cache_hits": provider_diagnostics.get("cache_hits", 0),
@@ -231,6 +238,24 @@ func collision_shape_count() -> int:
 		var body := _find_collision_body(visual_chunk_roots[key])
 		if body != null:
 			total += int(body.get_meta("collision_shape_count", 0))
+	return total
+
+
+func placed_layer_count() -> int:
+	var total := 0
+	for key in visual_chunk_roots:
+		var root: Node3D = visual_chunk_roots[key]
+		if _find_placed_layer(root) != null:
+			total += 1
+	return total
+
+
+func placed_object_count() -> int:
+	var total := 0
+	for key in visual_chunk_roots:
+		var layer := _find_placed_layer(visual_chunk_roots[key])
+		if layer != null:
+			total += layer.get_child_count()
 	return total
 
 
@@ -285,12 +310,36 @@ func _add_collision_if_enabled(
 	visual_root.add_child(collision_body)
 
 
+func _add_placed_objects_if_enabled(visual_root: Node3D, chunk_coord: Vector3i) -> void:
+	if not enable_placed_asset_prototype or placed_object_layer == null:
+		return
+	var descriptors: Array = placed_object_layer.generate_lab_descriptors_for_chunk(
+		chunk_coord,
+		chunk_edge_meters
+	)
+	var layer: Node3D = placed_object_layer.build_chunk_layer(
+		chunk_coord,
+		descriptors,
+		tile_mesh_catalog
+	)
+	visual_root.add_child(layer)
+
+
 func _find_collision_body(root: Node3D) -> StaticBody3D:
 	if root == null:
 		return null
 	for child in root.get_children():
 		if child is StaticBody3D and child.name == "ChunkCollision":
 			return child as StaticBody3D
+	return null
+
+
+func _find_placed_layer(root: Node3D) -> Node3D:
+	if root == null:
+		return null
+	for child in root.get_children():
+		if child is Node3D and child.name == "PlacedObjectLayer":
+			return child as Node3D
 	return null
 
 
