@@ -48,4 +48,3 @@ func _assert(condition: bool, message: String) -> void:
 	if not condition:
 		failed = true
 		push_error("catalog_variant_smoke failed: %s" % message)
-

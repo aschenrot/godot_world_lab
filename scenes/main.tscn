@@ -1,16 +1,15 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://dqu0l24omials"]
 
-[ext_resource type="Script" path="res://scripts/world_controller.gd" id="1_world_controller"]
+[ext_resource type="Script" uid="uid://ntgk6q1js3bt" path="res://scripts/world_controller.gd" id="1_world_controller"]
 
-[node name="Main" type="Node3D"]
+[node name="Main" type="Node3D" unique_id=2139166187]
 script = ExtResource("1_world_controller")
 
-[node name="PlayerOrCamera" type="Camera3D" parent="."]
+[node name="PlayerOrCamera" type="Camera3D" parent="." unique_id=2081747821]
 transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 36, 48)
 current = true
 
-[node name="ChunkRootContainer" type="Node3D" parent="."]
+[node name="ChunkRootContainer" type="Node3D" parent="." unique_id=1310103651]
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=2081793001]
 transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 16, 0)
-

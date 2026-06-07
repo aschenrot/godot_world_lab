@@ -59,4 +59,3 @@ func _assert(condition: bool, message: String) -> void:
 	if not condition:
 		failed = true
 		push_error("array_mesh_backend_smoke failed: %s" % message)
-
