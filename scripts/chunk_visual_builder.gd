@@ -58,11 +58,119 @@ func build_chunk_visual(
 	root.set_meta("chunk_coord", chunk_coord)
 
 	var cell_size_meters: float = chunk_edge_meters / float(maxi(cells_per_chunk, 1))
+	root.set_meta("catalog", catalog)
+	root.set_meta("cell_size_meters", cell_size_meters)
+	root.set_meta("visual_tiles_by_corner", _tiles_by_corner(visual_plan.get("tiles", [])))
+	root.set_meta("last_dirty_corner_count", 0)
+	_rebuild_multimesh_buckets(root)
+
+	return root
+
+
+func destroy_or_pool(chunk_root: Node3D, pool: Array[Node3D], max_pool_size: int) -> void:
+	if chunk_root == null:
+		return
+
+	_clear_children(chunk_root)
+	chunk_root.name = "PooledChunkVisual"
+	chunk_root.position = Vector3.ZERO
+	chunk_root.rotation = Vector3.ZERO
+	chunk_root.scale = Vector3.ONE
+	_remove_meta_if_present(chunk_root, "chunk_coord")
+	_remove_meta_if_present(chunk_root, "catalog")
+	_remove_meta_if_present(chunk_root, "cell_size_meters")
+	_remove_meta_if_present(chunk_root, "visual_tiles_by_corner")
+	_remove_meta_if_present(chunk_root, "last_dirty_corner_count")
+
+	if pool.size() < max_pool_size:
+		pool.append(chunk_root)
+	else:
+		chunk_root.free()
+
+
+func update_dirty_cell(chunk_root: Node3D, logic_grid: Array, cell_coord: Vector2i) -> int:
+	if topology_mapper == null:
+		push_error("GodotGridTopologyMapper is unavailable. Build and copy godot_grid.")
+		return 0
+	if chunk_root == null or not chunk_root.has_meta("chunk_coord"):
+		return 0
+
+	var chunk_coord: Vector3i = chunk_root.get_meta("chunk_coord")
+	var visual_resources: Array = topology_mapper.visual_tiles_for_dirty_logic_cell(logic_grid, cell_coord)
+	var visual_tiles: Array[Dictionary] = []
+	for resource in visual_resources:
+		var tile_resource: Object = resource as Object
+		visual_tiles.append(_resource_to_visual_tile_data(chunk_coord, tile_resource))
+
+	return update_visual_tiles(chunk_root, visual_tiles)
+
+
+func update_visual_tiles(chunk_root: Node3D, visual_tile_data_array: Array) -> int:
+	if chunk_root == null or not chunk_root.has_meta("visual_tiles_by_corner"):
+		return 0
+
+	var tiles_by_corner: Dictionary = chunk_root.get_meta("visual_tiles_by_corner")
+	for tile in visual_tile_data_array:
+		var data: Dictionary = tile
+		var key := _corner_key(data["corner"])
+		if data["is_empty"]:
+			tiles_by_corner.erase(key)
+		else:
+			tiles_by_corner[key] = data
+
+	chunk_root.set_meta("visual_tiles_by_corner", tiles_by_corner)
+	chunk_root.set_meta("last_dirty_corner_count", visual_tile_data_array.size())
+	_rebuild_multimesh_buckets(chunk_root)
+	return visual_tile_data_array.size()
+
+
+func _resource_to_visual_tile_data(chunk_coord: Vector3i, tile_resource: Object) -> Dictionary:
+	return {
+		"chunk_coord": chunk_coord,
+		"corner": tile_resource.corner,
+		"asset_key": String(tile_resource.asset_key),
+		"rotation_degrees_cw": int(tile_resource.rotation_degrees_cw),
+		"mask": int(tile_resource.mask),
+		"is_empty": bool(tile_resource.is_empty),
+	}
+
+
+func _tile_transform(tile_data: Dictionary, cell_size_meters: float) -> Transform3D:
+	var corner: Vector2i = tile_data["corner"]
+	var rotation_degrees_cw: int = tile_data["rotation_degrees_cw"]
+	var origin := Vector3(
+		float(corner.x) * cell_size_meters,
+		0.0,
+		float(corner.y) * cell_size_meters
+	)
+	var basis := Basis(Vector3.UP, deg_to_rad(float(rotation_degrees_cw)))
+	basis = basis.scaled(Vector3(cell_size_meters, 1.0, cell_size_meters))
+	return Transform3D(basis, origin)
+
+
+func _tiles_by_corner(tiles: Array) -> Dictionary:
+	var by_corner: Dictionary = {}
+	for tile in tiles:
+		var data: Dictionary = tile
+		if data["is_empty"]:
+			continue
+		by_corner[_corner_key(data["corner"])] = data
+	return by_corner
+
+
+func _rebuild_multimesh_buckets(root: Node3D) -> void:
+	_clear_children(root)
+	if not root.has_meta("catalog") or not root.has_meta("visual_tiles_by_corner"):
+		return
+
+	var catalog: RefCounted = root.get_meta("catalog")
+	var cell_size_meters: float = root.get_meta("cell_size_meters")
+	var visual_tiles_by_corner: Dictionary = root.get_meta("visual_tiles_by_corner")
 	var transforms_by_base_key: Dictionary = {}
 	var asset_key_by_base_key: Dictionary = {}
 
-	for tile in visual_plan.get("tiles", []):
-		var data: Dictionary = tile
+	for corner_key in visual_tiles_by_corner:
+		var data: Dictionary = visual_tiles_by_corner[corner_key]
 		var asset_key: String = data["asset_key"]
 		var base_key: String = catalog.base_key_for_asset_key(asset_key)
 		if not transforms_by_base_key.has(base_key):
@@ -92,59 +200,17 @@ func build_chunk_visual(
 		instance.material_override = catalog.get_material(source_asset_key)
 		root.add_child(instance)
 
-	return root
 
-
-func destroy_or_pool(chunk_root: Node3D, pool: Array[Node3D], max_pool_size: int) -> void:
-	if chunk_root == null:
-		return
-
-	_clear_children(chunk_root)
-	chunk_root.name = "PooledChunkVisual"
-	chunk_root.position = Vector3.ZERO
-	chunk_root.rotation = Vector3.ZERO
-	chunk_root.scale = Vector3.ONE
-	chunk_root.remove_meta("chunk_coord")
-
-	if pool.size() < max_pool_size:
-		pool.append(chunk_root)
-	else:
-		chunk_root.free()
-
-
-func update_dirty_cell(_chunk_root: Node3D, _logic_grid: Variant, _cell_coord: Vector2i) -> void:
-	pass
-
-
-func update_visual_tiles(_chunk_root: Node3D, _visual_tile_data_array: Array) -> void:
-	pass
-
-
-func _resource_to_visual_tile_data(chunk_coord: Vector3i, tile_resource: Object) -> Dictionary:
-	return {
-		"chunk_coord": chunk_coord,
-		"corner": tile_resource.corner,
-		"asset_key": String(tile_resource.asset_key),
-		"rotation_degrees_cw": int(tile_resource.rotation_degrees_cw),
-		"mask": int(tile_resource.mask),
-		"is_empty": bool(tile_resource.is_empty),
-	}
-
-
-func _tile_transform(tile_data: Dictionary, cell_size_meters: float) -> Transform3D:
-	var corner: Vector2i = tile_data["corner"]
-	var rotation_degrees_cw: int = tile_data["rotation_degrees_cw"]
-	var origin := Vector3(
-		float(corner.x) * cell_size_meters,
-		0.0,
-		float(corner.y) * cell_size_meters
-	)
-	var basis := Basis(Vector3.UP, deg_to_rad(float(rotation_degrees_cw)))
-	basis = basis.scaled(Vector3(cell_size_meters, 1.0, cell_size_meters))
-	return Transform3D(basis, origin)
+func _corner_key(corner: Vector2i) -> String:
+	return "%s:%s" % [corner.x, corner.y]
 
 
 func _clear_children(root: Node3D) -> void:
 	for child in root.get_children():
 		root.remove_child(child)
 		child.free()
+
+
+func _remove_meta_if_present(root: Node3D, name: StringName) -> void:
+	if root.has_meta(name):
+		root.remove_meta(name)
