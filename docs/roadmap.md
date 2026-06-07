@@ -6,7 +6,7 @@ This roadmap starts after the first formation-proof sequence:
 Authored -> Normalized -> Formed -> Instantiated -> Simulated -> Expressed / Observed
 ```
 
-M0-M16 are implemented in the current proof slice. M17 is future work only.
+M0-M17 are implemented in the current proof slice.
 
 ## Execution Rules
 
@@ -46,6 +46,8 @@ M0-M16 are implemented in the current proof slice. M17 is future work only.
   any `Crystonix/asset` repository or asset crates.
 - M16 adds a Godot tilekit manifest adapter, GLB catalog entry bridge, and
   in-memory MeshLibrary editor artifact proof without making it runtime truth.
+- M17 reconnects Runenwerk through a thin `domain/world_streaming` wrapper while
+  keeping Godot realization and Runenwerk SDF/product/runtime semantics separate.
 
 ## M5 - Tile-Kit Authoring / Import Proof
 
@@ -190,6 +192,8 @@ with `runtime_truth = false`.
 
 ## M17 - Reconnect Runenwerk
 
+Status: complete for the current proof.
+
 Reconnect Runenwerk only after the lab proves:
 
 - streaming
@@ -205,6 +209,10 @@ Reconnect Runenwerk only after the lab proves:
 Runenwerk integration must not move SDF, ECS, product, procgen, renderer,
 editor, save, or app semantics into `grid`, `spatial_streaming`, or
 `godot_world_lab`.
+
+The completed reconnect adds a Runenwerk `domain/world_streaming` wrapper around
+the reusable lifecycle crate. It does not replace Runenwerk's engine chunk
+runtime or move lab visuals/assets/generation into Runenwerk.
 
 ## Global Non-Goals
 
