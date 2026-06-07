@@ -41,9 +41,14 @@ func _assert_initial_streaming() -> void:
 	_assert(main_scene.chunk_provider != null, "chunk provider exists")
 	_assert(main_scene.debug_overlay != null, "debug overlay exists")
 	_assert(main_scene.debug_overlay.debug_chunk_count() > 0, "debug chunk roots are created")
+	_assert(main_scene.visual_chunk_count() > 0, "visual chunk roots are created")
 	_assert(
 		main_scene.debug_overlay.debug_chunk_count() == main_scene.debug_overlay.active_chunk_keys().size(),
 		"debug chunk roots are unique"
+	)
+	_assert(
+		main_scene.visual_chunk_count() == main_scene.visual_chunk_keys().size(),
+		"visual chunk roots are unique"
 	)
 	_assert(
 		main_scene.chunk_provider.pending_request_count() == 0,
@@ -57,6 +62,7 @@ func _assert_initial_streaming() -> void:
 
 func _assert_after_movement() -> void:
 	_assert(main_scene.debug_overlay.debug_chunk_count() > 0, "debug chunks remain after movement")
+	_assert(main_scene.visual_chunk_count() > 0, "visual chunks remain after movement")
 	_assert(
 		main_scene.chunk_provider.completed_unload_count > 0,
 		"movement triggers unload completion"
@@ -79,4 +85,3 @@ func _assert(condition: bool, message: String) -> void:
 func _fail(message: String) -> void:
 	failed = true
 	push_error("streaming_debug_smoke failed: %s" % message)
-

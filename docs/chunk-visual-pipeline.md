@@ -46,8 +46,32 @@ is_empty
 The Godot lab may group by `asset_key` for rendering, but the descriptor truth
 continues to come from `grid`.
 
+## MultiMesh Builder
+
+`ChunkVisualBuilder.build_chunk_visual()` consumes a visual plan and creates a
+chunk-local `Node3D` with one `MultiMeshInstance3D` bucket per base mesh key:
+
+```text
+corner
+edge
+t
+diagonal
+full
+debug
+```
+
+`scripts/tile_mesh_catalog.gd` resolves descriptor keys such as `corner_270` to
+base mesh keys such as `corner`. The current catalog provides fallback Godot
+box meshes and materials so the streaming proof is visible before authored GLB
+assets are finalized. Authored assets remain lab-owned and can replace those
+fallbacks without changing `grid` or `spatial_streaming`.
+
+The main scene builds a visual chunk root when `chunk_resident` fires and
+removes that root on `chunk_unloaded`.
+
 Validation:
 
 ```text
 godot --headless --path . --script tests/visual_plan_smoke.gd
+godot --headless --path . --script tests/multimesh_visual_smoke.gd
 ```

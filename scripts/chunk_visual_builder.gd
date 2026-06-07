@@ -40,6 +40,55 @@ func build_visual_plan(chunk_coord: Vector3i, logic_grid: Array) -> Dictionary:
 	}
 
 
+func build_chunk_visual(
+	chunk_coord: Vector3i,
+	visual_plan: Dictionary,
+	catalog: RefCounted,
+	chunk_edge_meters: float,
+	cells_per_chunk: int
+) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ChunkVisual_%s_%s_%s" % [chunk_coord.x, chunk_coord.y, chunk_coord.z]
+	root.set_meta("chunk_coord", chunk_coord)
+
+	var cell_size_meters: float = chunk_edge_meters / float(maxi(cells_per_chunk, 1))
+	var transforms_by_base_key: Dictionary = {}
+	var asset_key_by_base_key: Dictionary = {}
+
+	for tile in visual_plan.get("tiles", []):
+		var data: Dictionary = tile
+		var asset_key: String = data["asset_key"]
+		var base_key: String = catalog.base_key_for_asset_key(asset_key)
+		if not transforms_by_base_key.has(base_key):
+			transforms_by_base_key[base_key] = []
+			asset_key_by_base_key[base_key] = asset_key
+		transforms_by_base_key[base_key].append(_tile_transform(data, cell_size_meters))
+
+	var base_keys: Array = transforms_by_base_key.keys()
+	base_keys.sort()
+	for base_key in base_keys:
+		var source_asset_key: String = asset_key_by_base_key[base_key]
+		var mesh: Mesh = catalog.get_mesh(source_asset_key)
+		if mesh == null:
+			continue
+
+		var transforms: Array = transforms_by_base_key[base_key]
+		var multimesh := MultiMesh.new()
+		multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		multimesh.mesh = mesh
+		multimesh.instance_count = transforms.size()
+		for index in range(transforms.size()):
+			multimesh.set_instance_transform(index, transforms[index])
+
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "%s_bucket" % base_key
+		instance.multimesh = multimesh
+		instance.material_override = catalog.get_material(source_asset_key)
+		root.add_child(instance)
+
+	return root
+
+
 func update_dirty_cell(_chunk_root: Node3D, _logic_grid: Variant, _cell_coord: Vector2i) -> void:
 	pass
 
@@ -57,3 +106,16 @@ func _resource_to_visual_tile_data(chunk_coord: Vector3i, tile_resource: Object)
 		"mask": int(tile_resource.mask),
 		"is_empty": bool(tile_resource.is_empty),
 	}
+
+
+func _tile_transform(tile_data: Dictionary, cell_size_meters: float) -> Transform3D:
+	var corner: Vector2i = tile_data["corner"]
+	var rotation_degrees_cw: int = tile_data["rotation_degrees_cw"]
+	var origin := Vector3(
+		float(corner.x) * cell_size_meters,
+		0.0,
+		float(corner.y) * cell_size_meters
+	)
+	var basis := Basis(Vector3.UP, deg_to_rad(float(rotation_degrees_cw)))
+	basis = basis.scaled(Vector3(cell_size_meters, 1.0, cell_size_meters))
+	return Transform3D(basis, origin)
