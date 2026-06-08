@@ -22,6 +22,7 @@ var completed_load_count: int = 0
 var completed_unload_count: int = 0
 var cache_hit_count: int = 0
 var cache_miss_count: int = 0
+var formation_sample_cache: Dictionary = {}
 
 
 func _ready() -> void:
@@ -69,6 +70,10 @@ func cache_entry_count() -> int:
 	if chunk_cache == null:
 		return 0
 	return chunk_cache.entry_count()
+
+
+func formation_sample_cache_count() -> int:
+	return formation_sample_cache.size()
 
 
 func get_loaded_chunk_data(chunk_coord: Vector3i) -> Dictionary:
@@ -169,7 +174,7 @@ func generate_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
 
 
 func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
-	var size: int = maxi(chunk_size_cells, 4)
+	var size: int = effective_chunk_size_cells()
 	var grid := _generate_smoothed_grid(chunk_coord, size)
 	var debug_markers: Array = []
 	_carve_rooms_and_paths(chunk_coord, grid, debug_markers)
@@ -185,6 +190,10 @@ func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
 
 func generate_chunk_debug_markers(chunk_coord: Vector3i) -> Array:
 	return generate_chunk_generation_result(chunk_coord)["debug_markers"]
+
+
+func effective_chunk_size_cells() -> int:
+	return maxi(chunk_size_cells, 4)
 
 
 func _generate_smoothed_grid(chunk_coord: Vector3i, size: int) -> Array:
@@ -209,15 +218,72 @@ func _generate_smoothed_grid(chunk_coord: Vector3i, size: int) -> Array:
 
 
 func make_generated_chunk_data(chunk_coord: Vector3i, logic_grid: Array) -> Dictionary:
+	var formation_data := make_formation_data(chunk_coord, logic_grid)
 	return {
 		"product_type": "GeneratedChunkData",
 		"chunk_coord": chunk_coord,
 		"generator_version": generator_version,
 		"generation_settings_hash": generation_settings_hash(),
 		"logic_grid": logic_grid,
+		"formation_grid": formation_data["formation_grid"],
+		"formation_origin_cell": formation_data["formation_origin_cell"],
+		"owned_visual_origin": formation_data["owned_visual_origin"],
+		"owned_visual_size": formation_data["owned_visual_size"],
+		"formation_mode": formation_data["formation_mode"],
+		"source_chunk_coords": formation_data["source_chunk_coords"],
 		"debug_markers": generate_chunk_debug_markers(chunk_coord),
 		"generation_settings": generation_diagnostics(),
 	}
+
+
+func make_formation_data(chunk_coord: Vector3i, logic_grid: Array) -> Dictionary:
+	var size := _logic_grid_dimension(logic_grid)
+	var formation_grid: Array = []
+	var source_chunks: Dictionary = {}
+
+	for local_y in range(-1, size):
+		var row: Array = []
+		for local_x in range(-1, size):
+			var world_cell := _world_cell_from_chunk_local(chunk_coord, Vector2i(local_x, local_y))
+			var owner := world_cell_owner_chunk_coord(world_cell, chunk_coord.y)
+			source_chunks[_chunk_key(owner)] = owner
+			row.append(_sample_world_logic_cell_with_current_grid(
+				world_cell,
+				chunk_coord.y,
+				chunk_coord,
+				logic_grid
+			))
+		formation_grid.append(row)
+
+	return {
+		"formation_grid": formation_grid,
+		"formation_origin_cell": Vector2i(-1, -1),
+		"owned_visual_origin": Vector2i.ZERO,
+		"owned_visual_size": Vector2i(size, size),
+		"formation_mode": "owned_halo",
+		"source_chunk_coords": _sorted_chunk_coords(source_chunks),
+	}
+
+
+func sample_final_logic_cell(chunk_coord: Vector3i, local_cell: Vector2i) -> int:
+	var world_cell := _world_cell_from_chunk_local(chunk_coord, local_cell)
+	return sample_world_logic_cell(world_cell, chunk_coord.y)
+
+
+func sample_world_logic_cell(world_cell: Vector2i, chunk_y: int = 0) -> int:
+	var owner := world_cell_owner_chunk_coord(world_cell, chunk_y)
+	var local_cell := local_cell_for_world_cell(world_cell)
+	return _logic_grid_cell(_get_generated_logic_grid_for_sampling(owner), local_cell)
+
+
+func world_cell_owner_chunk_coord(world_cell: Vector2i, chunk_y: int = 0) -> Vector3i:
+	var size := effective_chunk_size_cells()
+	return Vector3i(_floor_div(world_cell.x, size), chunk_y, _floor_div(world_cell.y, size))
+
+
+func local_cell_for_world_cell(world_cell: Vector2i) -> Vector2i:
+	var size := effective_chunk_size_cells()
+	return Vector2i(_positive_mod(world_cell.x, size), _positive_mod(world_cell.y, size))
 
 
 func generation_settings_hash() -> int:
@@ -240,6 +306,7 @@ func generation_diagnostics() -> Dictionary:
 		"world_seed": world_seed,
 		"generator_version": generator_version,
 		"chunk_size_cells": chunk_size_cells,
+		"effective_chunk_size_cells": effective_chunk_size_cells(),
 		"wall_threshold_percent": wall_threshold_percent,
 		"debug_force_chunk_border": debug_force_chunk_border,
 		"smoothing_passes": smoothing_passes,
@@ -256,6 +323,7 @@ func get_diagnostics() -> Dictionary:
 		"pending_requests": pending_request_count(),
 		"loaded_chunks": loaded_chunk_count(),
 		"cache_entries": cache_entry_count(),
+		"formation_sample_cache_entries": formation_sample_cache_count(),
 		"cache_hits": cache_hit_count,
 		"cache_misses": cache_miss_count,
 		"completed_loads": completed_load_count,
@@ -277,15 +345,17 @@ func _cell_is_wall(chunk_coord: Vector3i, cell: Vector2i, size: int) -> int:
 
 
 func _initial_cell_is_wall(chunk_coord: Vector3i, cell: Vector2i) -> int:
-	var world_x: int = chunk_coord.x * chunk_size_cells + cell.x
-	var world_z: int = chunk_coord.z * chunk_size_cells + cell.y
+	var size := effective_chunk_size_cells()
+	var world_x: int = chunk_coord.x * size + cell.x
+	var world_z: int = chunk_coord.z * size + cell.y
 	var local_noise: int = _noise_world_0_99(world_x, world_z)
 	return 1 if local_noise < clampi(wall_threshold_percent, 0, 100) else 0
 
 
 func _noise_0_99(chunk_coord: Vector3i, cell: Vector2i) -> int:
-	var world_x: int = chunk_coord.x * chunk_size_cells + cell.x
-	var world_z: int = chunk_coord.z * chunk_size_cells + cell.y
+	var size := effective_chunk_size_cells()
+	var world_x: int = chunk_coord.x * size + cell.x
+	var world_z: int = chunk_coord.z * size + cell.y
 	return _noise_world_0_99(world_x, world_z)
 
 
@@ -391,6 +461,92 @@ func _apply_forced_chunk_border(grid: Array) -> void:
 
 func _grid_contains(grid: Array, x: int, y: int) -> bool:
 	return y >= 0 and y < grid.size() and x >= 0 and x < int(grid[y].size())
+
+
+func _sample_world_logic_cell_with_current_grid(
+	world_cell: Vector2i,
+	chunk_y: int,
+	current_chunk_coord: Vector3i,
+	current_logic_grid: Array
+) -> int:
+	var owner := world_cell_owner_chunk_coord(world_cell, chunk_y)
+	var local_cell := local_cell_for_world_cell(world_cell)
+	if owner == current_chunk_coord:
+		return _logic_grid_cell(current_logic_grid, local_cell)
+	return _logic_grid_cell(_get_generated_logic_grid_for_sampling(owner), local_cell)
+
+
+func _get_generated_logic_grid_for_sampling(chunk_coord: Vector3i) -> Array:
+	var settings_hash := generation_settings_hash()
+	var loaded_record: Dictionary = loaded_chunks.get(_chunk_key(chunk_coord), {})
+	if (
+		not loaded_record.is_empty()
+		and int(loaded_record.get("generator_version", -1)) == generator_version
+		and int(loaded_record.get("generation_settings_hash", -1)) == settings_hash
+	):
+		var loaded_data: Dictionary = loaded_record.get("generated_chunk_data", {})
+		if loaded_data.has("logic_grid"):
+			return loaded_data["logic_grid"]
+
+	var cache_key := "%s|%s" % [settings_hash, _chunk_key(chunk_coord)]
+	if formation_sample_cache.has(cache_key):
+		return formation_sample_cache[cache_key]
+
+	var logic_grid: Array = []
+	if use_chunk_cache:
+		_ensure_cache()
+		if chunk_cache.has_chunk(chunk_coord, generator_version, settings_hash):
+			logic_grid = chunk_cache.load_chunk(chunk_coord, generator_version, settings_hash)
+
+	if logic_grid.is_empty():
+		logic_grid = generate_chunk_generation_result(chunk_coord)["logic_grid"]
+
+	formation_sample_cache[cache_key] = logic_grid
+	return logic_grid
+
+
+func _logic_grid_cell(logic_grid: Array, local_cell: Vector2i) -> int:
+	if (
+		local_cell.y < 0
+		or local_cell.y >= logic_grid.size()
+		or local_cell.x < 0
+		or local_cell.x >= int(logic_grid[local_cell.y].size())
+	):
+		return 0
+	return int(logic_grid[local_cell.y][local_cell.x])
+
+
+func _logic_grid_dimension(logic_grid: Array) -> int:
+	if logic_grid.is_empty():
+		return effective_chunk_size_cells()
+	return logic_grid.size()
+
+
+func _world_cell_from_chunk_local(chunk_coord: Vector3i, local_cell: Vector2i) -> Vector2i:
+	var size := effective_chunk_size_cells()
+	return Vector2i(chunk_coord.x * size + local_cell.x, chunk_coord.z * size + local_cell.y)
+
+
+func _floor_div(value: int, divisor: int) -> int:
+	if divisor <= 0:
+		return 0
+	return floori(float(value) / float(divisor))
+
+
+func _positive_mod(value: int, modulus: int) -> int:
+	if modulus <= 0:
+		return 0
+	var result := value % modulus
+	return result + modulus if result < 0 else result
+
+
+func _sorted_chunk_coords(chunks_by_key: Dictionary) -> Array:
+	var keys := chunks_by_key.keys()
+	keys.sort()
+	var coords: Array[Vector3i] = []
+	for key in keys:
+		coords.append(chunks_by_key[key])
+	return coords
 
 
 func _mix(seed: int, value: int) -> int:

@@ -34,3 +34,10 @@ addons/godot_world_streaming/bin/
 
 The binaries are intentionally ignored by Git.
 
+On macOS, copied GDExtension libraries must be ad-hoc signed or Godot can be
+killed by code-signing page validation while loading the addon. After rebuilding
+the Rust adapters, sync and sign the local binaries with:
+
+```sh
+tools/sync_native_addons.sh
+```

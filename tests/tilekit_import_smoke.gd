@@ -10,6 +10,14 @@ const REQUIRED_BASE_MESHES: Array[String] = [
 	"full",
 	"debug",
 ]
+const MAX_FOOTPRINTS := {
+	"corner": Vector2(0.51, 0.51),
+	"edge": Vector2(1.01, 0.61),
+	"t": Vector2(1.01, 1.01),
+	"diagonal": Vector2(1.01, 1.01),
+	"full": Vector2(1.01, 1.01),
+	"debug": Vector2(1.01, 1.01),
+}
 
 var failed := false
 
@@ -34,6 +42,7 @@ func _initialize() -> void:
 		for required_name in REQUIRED_BASE_MESHES:
 			_assert(mesh_names.has(required_name), "normalized GLB has %s" % required_name)
 			_assert(_mesh_has_surface(root, required_name), "%s has mesh surface" % required_name)
+			_assert(_mesh_footprint_is_canonical(root, required_name), "%s has canonical footprint" % required_name)
 		_assert(not _has_authored_rotation_variant(mesh_names), "normalized GLB has no rotated mesh variants")
 		root.free()
 
@@ -76,6 +85,16 @@ func _collect_mesh_names_recursive(node: Node, names: Dictionary) -> void:
 func _mesh_has_surface(root: Node, mesh_name: String) -> bool:
 	var node := _find_mesh_instance(root, mesh_name)
 	return node != null and node.mesh != null and node.mesh.get_surface_count() > 0
+
+
+func _mesh_footprint_is_canonical(root: Node, mesh_name: String) -> bool:
+	var node := _find_mesh_instance(root, mesh_name)
+	if node == null or node.mesh == null:
+		return false
+
+	var max_footprint: Vector2 = MAX_FOOTPRINTS[mesh_name]
+	var aabb := node.mesh.get_aabb()
+	return aabb.size.x <= max_footprint.x and aabb.size.z <= max_footprint.y
 
 
 func _find_mesh_instance(root: Node, mesh_name: String) -> MeshInstance3D:

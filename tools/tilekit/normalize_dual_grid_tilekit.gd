@@ -37,7 +37,8 @@ func _normalize() -> int:
 
 		var normalized := MeshInstance3D.new()
 		normalized.name = SOURCE_TO_NORMALIZED[source_name]
-		normalized.mesh = source_mesh.mesh.duplicate(true)
+		# Bake authored scale into vertices so runtime cell-size scaling has one source of truth.
+		normalized.mesh = _duplicate_mesh_with_scale(source_mesh.mesh, source_mesh.scale)
 		normalized.transform = Transform3D.IDENTITY
 		export_root.add_child(normalized)
 
@@ -96,6 +97,76 @@ func _find_mesh_instance(root: Node, node_name: String) -> MeshInstance3D:
 		if found != null:
 			return found
 	return null
+
+
+func _duplicate_mesh_with_scale(source_mesh: Mesh, scale: Vector3) -> Mesh:
+	if source_mesh is ArrayMesh:
+		var output := ArrayMesh.new()
+		var array_mesh := source_mesh as ArrayMesh
+		for surface_index in range(array_mesh.get_surface_count()):
+			var arrays := array_mesh.surface_get_arrays(surface_index)
+			_scale_vertices(arrays, scale)
+			_scale_normals(arrays, scale)
+			_scale_tangents(arrays, scale)
+			output.add_surface_from_arrays(array_mesh.surface_get_primitive_type(surface_index), arrays)
+			var material := array_mesh.surface_get_material(surface_index)
+			if material != null:
+				output.surface_set_material(surface_index, material.duplicate(true))
+		return output
+
+	return source_mesh.duplicate(true)
+
+
+func _scale_vertices(arrays: Array, scale: Vector3) -> void:
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	for index in range(vertices.size()):
+		vertices[index] = Vector3(
+			vertices[index].x * scale.x,
+			vertices[index].y * scale.y,
+			vertices[index].z * scale.z
+		)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+
+
+func _scale_normals(arrays: Array, scale: Vector3) -> void:
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	if normals.is_empty():
+		return
+
+	var inverse_scale := _safe_inverse_scale(scale)
+	for index in range(normals.size()):
+		normals[index] = Vector3(
+			normals[index].x * inverse_scale.x,
+			normals[index].y * inverse_scale.y,
+			normals[index].z * inverse_scale.z
+		).normalized()
+	arrays[Mesh.ARRAY_NORMAL] = normals
+
+
+func _scale_tangents(arrays: Array, scale: Vector3) -> void:
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+	if tangents.is_empty():
+		return
+
+	var inverse_scale := _safe_inverse_scale(scale)
+	for index in range(0, tangents.size(), 4):
+		var tangent := Vector3(
+			tangents[index] * inverse_scale.x,
+			tangents[index + 1] * inverse_scale.y,
+			tangents[index + 2] * inverse_scale.z
+		).normalized()
+		tangents[index] = tangent.x
+		tangents[index + 1] = tangent.y
+		tangents[index + 2] = tangent.z
+	arrays[Mesh.ARRAY_TANGENT] = tangents
+
+
+func _safe_inverse_scale(scale: Vector3) -> Vector3:
+	return Vector3(
+		1.0 / scale.x if not is_zero_approx(scale.x) else 1.0,
+		1.0 / scale.y if not is_zero_approx(scale.y) else 1.0,
+		1.0 / scale.z if not is_zero_approx(scale.z) else 1.0
+	)
 
 
 func _make_debug_mesh() -> MeshInstance3D:

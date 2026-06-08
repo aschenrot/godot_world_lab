@@ -15,9 +15,9 @@ func _initialize() -> void:
 	var manual_grid: Array = [[1]]
 	var manual_plan: Dictionary = builder.build_visual_plan(Vector3i.ZERO, manual_grid)
 	_assert(manual_plan["tiles"].size() == 4, "one wall creates four visual corners")
-	_assert(manual_plan["buckets"].has("corner_270"), "manual grid includes stable corner_270 key")
+	_assert(manual_plan["buckets"].has("corner_180"), "manual grid includes stable corner_180 key")
 	_assert(_all_tiles_are_non_empty(manual_plan["tiles"]), "empty tiles are skipped")
-	_assert(_contains_rotation(manual_plan["tiles"], 270), "rotation data is preserved")
+	_assert(_contains_rotation(manual_plan["tiles"], 180), "rotation data is preserved")
 
 	var provider: Node = Node.new()
 	provider.set_script(load("res://scripts/chunk_provider.gd"))
@@ -54,4 +54,3 @@ func _assert(condition: bool, message: String) -> void:
 func _fail(message: String) -> void:
 	failed = true
 	push_error("visual_plan_smoke failed: %s" % message)
-

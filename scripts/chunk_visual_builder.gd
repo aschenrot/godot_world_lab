@@ -10,77 +10,67 @@ func _init() -> void:
 
 func build_visual_plan(chunk_coord: Vector3i, logic_grid: Array, catalog: RefCounted = null) -> Dictionary:
 	if topology_mapper == null:
-		push_error("GodotGridTopologyMapper is unavailable. Build and copy godot_grid.")
-		return {
-			"product_type": "ChunkVisualPlan",
-			"chunk_coord": chunk_coord,
-			"visual_tiles": [],
-			"tiles": [],
-			"asset_keys": [],
-			"missing_assets": [],
-			"bounds": {},
-			"diagnostics": {
-				"is_valid": false,
-				"error": "GodotGridTopologyMapper unavailable",
-			},
-			"buckets": {},
-		}
+		return _unavailable_mapper_plan(chunk_coord)
 
 	var visual_resources: Array = topology_mapper.visual_tiles_for_logic_grid(logic_grid)
-	var tiles: Array[Dictionary] = []
-	var buckets: Dictionary = {}
-	var asset_keys_seen: Dictionary = {}
-	var skipped_empty_count := 0
-	var bounds := _empty_bounds()
+	return _build_plan_from_visual_resources(
+		chunk_coord,
+		visual_resources,
+		catalog,
+		{
+			"formation_mode": "local_no_halo",
+			"formation_origin_cell": Vector2i.ZERO,
+			"owned_visual_origin": Vector2i.ZERO,
+			"owned_visual_size": _visual_grid_size_for_logic_grid(logic_grid),
+		}
+	)
 
-	for resource in visual_resources:
-		var tile_resource: Object = resource as Object
-		var data: Dictionary = _resource_to_visual_tile_data(chunk_coord, tile_resource)
-		if data["is_empty"]:
-			skipped_empty_count += 1
-			continue
 
-		tiles.append(data)
-		_expand_bounds(bounds, data["corner"])
-		var asset_key: String = data["asset_key"]
-		asset_keys_seen[asset_key] = true
-		if not buckets.has(asset_key):
-			buckets[asset_key] = []
-		buckets[asset_key].append(data)
+func build_owned_visual_plan(
+	chunk_coord: Vector3i,
+	formation_grid: Array,
+	formation_origin_cell: Vector2i,
+	owned_visual_origin: Vector2i,
+	owned_visual_size: Vector2i,
+	catalog: RefCounted = null
+) -> Dictionary:
+	if topology_mapper == null:
+		return _unavailable_mapper_plan(chunk_coord)
 
-	var asset_keys := asset_keys_seen.keys()
-	asset_keys.sort()
-	var diagnostics := {
-		"is_valid": true,
-		"total_visual_corners": visual_resources.size(),
-		"non_empty_visual_tiles": tiles.size(),
-		"skipped_empty_visual_tiles": skipped_empty_count,
-		"asset_key_count": asset_keys.size(),
-	}
-	var missing_assets: Array = []
-	if catalog != null:
-		var validation: Dictionary = catalog.validate_visual_plan({"visual_tiles": tiles})
-		missing_assets = validation["missing_asset_keys"]
-		diagnostics["is_valid"] = validation["is_valid"]
-		diagnostics["catalog_validation"] = validation
-
-	return {
-		"product_type": "ChunkVisualPlan",
-		"chunk_coord": chunk_coord,
-		"visual_tiles": tiles,
-		"tiles": tiles,
-		"asset_keys": asset_keys,
-		"missing_assets": missing_assets,
-		"bounds": bounds,
-		"diagnostics": diagnostics,
-		"buckets": buckets,
-	}
+	var visual_resources: Array = topology_mapper.visual_tiles_for_logic_grid(formation_grid)
+	var crop_min := owned_visual_origin - formation_origin_cell
+	var crop_max_exclusive := crop_min + owned_visual_size
+	return _build_plan_from_visual_resources(
+		chunk_coord,
+		visual_resources,
+		catalog,
+		{
+			"formation_mode": "owned_halo",
+			"formation_origin_cell": formation_origin_cell,
+			"owned_visual_origin": owned_visual_origin,
+			"owned_visual_size": owned_visual_size,
+			"crop_min": crop_min,
+			"crop_max_exclusive": crop_max_exclusive,
+		}
+	)
 
 
 func build_visual_plan_from_generated_chunk(
 	generated_chunk_data: Dictionary,
 	catalog: RefCounted = null
 ) -> Dictionary:
+	if generated_chunk_data.has("formation_grid"):
+		return build_owned_visual_plan(
+			generated_chunk_data["chunk_coord"],
+			generated_chunk_data["formation_grid"],
+			generated_chunk_data.get("formation_origin_cell", Vector2i(-1, -1)),
+			generated_chunk_data.get("owned_visual_origin", Vector2i.ZERO),
+			generated_chunk_data.get("owned_visual_size", _visual_grid_size_for_logic_grid(
+				generated_chunk_data["logic_grid"]
+			)),
+			catalog
+		)
+
 	return build_visual_plan(
 		generated_chunk_data["chunk_coord"],
 		generated_chunk_data["logic_grid"],
@@ -268,6 +258,118 @@ func update_visual_tiles(chunk_root: Node3D, visual_tile_data_array: Array) -> i
 	return visual_tile_data_array.size()
 
 
+func _unavailable_mapper_plan(chunk_coord: Vector3i) -> Dictionary:
+	push_error("GodotGridTopologyMapper is unavailable. Build and copy godot_grid.")
+	return {
+		"product_type": "ChunkVisualPlan",
+		"chunk_coord": chunk_coord,
+		"visual_tiles": [],
+		"tiles": [],
+		"asset_keys": [],
+		"missing_assets": [],
+		"bounds": {},
+		"diagnostics": {
+			"is_valid": false,
+			"error": "GodotGridTopologyMapper unavailable",
+		},
+		"buckets": {},
+	}
+
+
+func _build_plan_from_visual_resources(
+	chunk_coord: Vector3i,
+	visual_resources: Array,
+	catalog: RefCounted,
+	options: Dictionary
+) -> Dictionary:
+	var formation_mode: String = options.get("formation_mode", "local_no_halo")
+	var formation_origin_cell: Vector2i = options.get("formation_origin_cell", Vector2i.ZERO)
+	var owned_visual_origin: Vector2i = options.get("owned_visual_origin", Vector2i.ZERO)
+	var owned_visual_size: Vector2i = options.get("owned_visual_size", Vector2i.ZERO)
+	var crop_enabled := options.has("crop_min") and options.has("crop_max_exclusive")
+	var crop_min: Vector2i = options.get("crop_min", Vector2i.ZERO)
+	var crop_max_exclusive: Vector2i = options.get("crop_max_exclusive", Vector2i.ZERO)
+
+	var tiles: Array[Dictionary] = []
+	var buckets: Dictionary = {}
+	var asset_keys_seen: Dictionary = {}
+	var skipped_empty_count := 0
+	var cropped_corner_count := 0
+	var emitted_out_of_bounds_count := 0
+	var bounds := _empty_bounds()
+
+	for resource in visual_resources:
+		var tile_resource: Object = resource as Object
+		var formation_corner: Vector2i = tile_resource.corner
+		if crop_enabled and not _corner_inside_rect(formation_corner, crop_min, crop_max_exclusive):
+			continue
+
+		cropped_corner_count += 1
+		var local_corner := formation_corner + formation_origin_cell
+		var data: Dictionary = _resource_to_visual_tile_data(chunk_coord, tile_resource)
+		data["formation_mode"] = formation_mode
+		data["formation_corner"] = formation_corner
+		data["corner"] = local_corner
+		data["world_corner"] = _world_corner_for_local_corner(
+			chunk_coord,
+			local_corner,
+			owned_visual_size
+		)
+
+		if not _corner_inside_owned_rect(local_corner, owned_visual_origin, owned_visual_size):
+			emitted_out_of_bounds_count += 1
+
+		if data["is_empty"]:
+			skipped_empty_count += 1
+			continue
+
+		tiles.append(data)
+		_expand_bounds(bounds, data["corner"])
+		var asset_key: String = data["asset_key"]
+		asset_keys_seen[asset_key] = true
+		if not buckets.has(asset_key):
+			buckets[asset_key] = []
+		buckets[asset_key].append(data)
+
+	var asset_keys := asset_keys_seen.keys()
+	asset_keys.sort()
+	var diagnostics := {
+		"is_valid": emitted_out_of_bounds_count == 0,
+		"formation_mode": formation_mode,
+		"formation_origin_cell": formation_origin_cell,
+		"owned_visual_origin": owned_visual_origin,
+		"owned_visual_size": owned_visual_size,
+		"total_visual_corners": visual_resources.size(),
+		"cropped_visual_corners": cropped_corner_count,
+		"non_empty_visual_tiles": tiles.size(),
+		"skipped_empty_visual_tiles": skipped_empty_count,
+		"emitted_out_of_bounds_corners": emitted_out_of_bounds_count,
+		"asset_key_count": asset_keys.size(),
+	}
+	var missing_assets: Array = []
+	if catalog != null:
+		var validation: Dictionary = catalog.validate_visual_plan({"visual_tiles": tiles})
+		missing_assets = validation["missing_asset_keys"]
+		diagnostics["is_valid"] = bool(diagnostics["is_valid"]) and bool(validation["is_valid"])
+		diagnostics["catalog_validation"] = validation
+
+	return {
+		"product_type": "ChunkVisualPlan",
+		"chunk_coord": chunk_coord,
+		"formation_mode": formation_mode,
+		"formation_origin_cell": formation_origin_cell,
+		"owned_visual_origin": owned_visual_origin,
+		"owned_visual_size": owned_visual_size,
+		"visual_tiles": tiles,
+		"tiles": tiles,
+		"asset_keys": asset_keys,
+		"missing_assets": missing_assets,
+		"bounds": bounds,
+		"diagnostics": diagnostics,
+		"buckets": buckets,
+	}
+
+
 func _resource_to_visual_tile_data(chunk_coord: Vector3i, tile_resource: Object) -> Dictionary:
 	return {
 		"chunk_coord": chunk_coord,
@@ -287,7 +389,8 @@ func _tile_transform(tile_data: Dictionary, cell_size_meters: float) -> Transfor
 		0.0,
 		float(corner.y) * cell_size_meters
 	)
-	var basis := Basis(Vector3.UP, deg_to_rad(float(rotation_degrees_cw)))
+	# Grid rotations are clockwise in X/Y-down space; Godot yaw is opposite once Y maps to +Z.
+	var basis := Basis(Vector3.UP, deg_to_rad(float(-rotation_degrees_cw)))
 	basis = basis.scaled(Vector3(cell_size_meters, 1.0, cell_size_meters))
 	return Transform3D(basis, origin)
 
@@ -321,6 +424,42 @@ func _expand_bounds(bounds: Dictionary, corner: Vector2i) -> void:
 	var max_corner: Vector2i = bounds["max_corner"]
 	bounds["min_corner"] = Vector2i(mini(min_corner.x, corner.x), mini(min_corner.y, corner.y))
 	bounds["max_corner"] = Vector2i(maxi(max_corner.x, corner.x), maxi(max_corner.y, corner.y))
+
+
+func _corner_inside_rect(corner: Vector2i, min_corner: Vector2i, max_exclusive: Vector2i) -> bool:
+	return (
+		corner.x >= min_corner.x
+		and corner.y >= min_corner.y
+		and corner.x < max_exclusive.x
+		and corner.y < max_exclusive.y
+	)
+
+
+func _corner_inside_owned_rect(
+	corner: Vector2i,
+	owned_visual_origin: Vector2i,
+	owned_visual_size: Vector2i
+) -> bool:
+	return _corner_inside_rect(corner, owned_visual_origin, owned_visual_origin + owned_visual_size)
+
+
+func _world_corner_for_local_corner(
+	chunk_coord: Vector3i,
+	local_corner: Vector2i,
+	owned_visual_size: Vector2i
+) -> Vector2i:
+	return Vector2i(
+		chunk_coord.x * owned_visual_size.x + local_corner.x,
+		chunk_coord.z * owned_visual_size.y + local_corner.y
+	)
+
+
+func _visual_grid_size_for_logic_grid(logic_grid: Array) -> Vector2i:
+	var height := logic_grid.size()
+	var width := 0
+	for row in logic_grid:
+		width = maxi(width, int(row.size()))
+	return Vector2i(width + 1, height + 1)
 
 
 func _rebuild_multimesh_buckets(root: Node3D) -> void:
