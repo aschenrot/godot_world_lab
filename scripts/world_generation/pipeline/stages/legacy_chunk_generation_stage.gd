@@ -3,7 +3,8 @@ extends GenerationStage
 class_name LegacyChunkGenerationStage
 
 const STAGE_ID := "legacy_chunk_generation_stage"
-const LEGACY_METHOD := "_generate_legacy_chunk_generation_result"
+const PRIVATE_LEGACY_METHOD := "_generate_legacy_chunk_generation_result"
+const PUBLIC_COMPATIBILITY_METHOD := "generate_chunk_generation_result"
 
 var provider: Node = null
 
@@ -30,7 +31,7 @@ func can_run(
 ) -> bool:
 	return super.can_run(snapshot, context, working_set) \
 		and provider != null \
-		and provider.has_method(LEGACY_METHOD)
+		and _legacy_method_name() != ""
 
 
 func _run(
@@ -40,10 +41,12 @@ func _run(
 ) -> GenerationStageResult:
 	if provider == null:
 		return GenerationStageResult.failed(stage_id, stage_category, "missing_legacy_provider")
-	if not provider.has_method(LEGACY_METHOD):
+
+	var method_name := _legacy_method_name()
+	if method_name.is_empty():
 		return GenerationStageResult.failed(stage_id, stage_category, "missing_legacy_generation_method")
 
-	var called_result: Variant = provider.call(LEGACY_METHOD, context.chunk_coord)
+	var called_result: Variant = provider.call(method_name, context.chunk_coord)
 	if typeof(called_result) != TYPE_DICTIONARY:
 		return GenerationStageResult.failed(stage_id, stage_category, "legacy_generation_result_not_dictionary")
 
@@ -82,6 +85,7 @@ func _run(
 	var diagnostics: Dictionary = normalized_result.get("diagnostics", {})
 	working_set.set_diagnostic("legacy_generator_diagnostics", diagnostics)
 	working_set.set_diagnostic("legacy_logic_grid_alias", "topology_projections.solid")
+	working_set.set_diagnostic("legacy_provider_method", method_name)
 
 	var result := GenerationStageResult.success(stage_id, stage_category)
 	result.increment_emitted_count("legacy_generation_result")
@@ -89,7 +93,18 @@ func _run(
 	result.increment_emitted_count("world_layer", 1)
 	result.increment_emitted_count("world_feature_set", 1)
 	result.set_diagnostic("logic_grid_alias", "topology_layers.solid")
+	result.set_diagnostic("provider_method", method_name)
 	return result
+
+
+func _legacy_method_name() -> String:
+	if provider == null:
+		return ""
+	if provider.has_method(PRIVATE_LEGACY_METHOD):
+		return PRIVATE_LEGACY_METHOD
+	if provider.has_method(PUBLIC_COMPATIBILITY_METHOD):
+		return PUBLIC_COMPATIBILITY_METHOD
+	return ""
 
 
 func _has_required_compatibility_shape(generation_result: Dictionary) -> bool:
