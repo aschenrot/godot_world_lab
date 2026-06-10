@@ -1,423 +1,1094 @@
-# Godot World Lab — World Generation Proof Roadmap
+# Godot World Lab — World Generation Roadmap
 
 ## Purpose
 
-This roadmap defines the next Godot World Lab work for proving a flexible procedural world-generation pipeline.
+This roadmap defines the long-term procedural world-generation proof for `godot_world_lab`.
 
-The goal is not to hardcode one world type such as a cave, dungeon, hive, factory, or arena chain. The goal is to prove a general chunk-world generation flow that can later map cleanly into Runenwerk’s domain/procgen, world, asset, and formed-product architecture.
+The target is not one specific world type such as a cave, continent, dungeon, hive, arena chain, factory, or overworld. The target is a deterministic, data-first proof pipeline that can support many world shapes without turning Godot Lab into a reusable engine too early.
 
-Godot World Lab remains the proof host. It may contain temporary Godot-specific implementation code, but reusable concepts must be documented before extraction.
+Godot Lab remains the proof host. Reusable contracts must be documented and proven before extraction is considered.
+
+```text
+WorldDefinition
+→ WorldDefinitionSnapshot
+→ GenerationContext
+→ GenerationPipeline
+→ GeneratedWorldChunk
+→ topology projections
+→ formation products
+→ Godot realization
+```
+
+Generation produces generated world facts. It does not create Godot nodes, meshes, collision objects, scenes, save records, ECS entities, Runenwerk SDF payloads, or gameplay spawns.
 
 ---
 
-## Current Boundary
+## Repository Boundary
 
-### Godot World Lab owns
+### Godot Lab owns
 
 * Godot scenes
 * debug UI
 * generation experiments
-* temporary world profile proof code
-* tile mesh catalog proof code
+* Godot-facing world definition resources
 * chunk visual builders
-* collision formation prototypes
-* provider/cache prototypes
-* editor preview experiments
+* collision realization builders
+* editor/runtime previews
+* provider/cache adapters
+* compatibility facades for current runtime data
 
-### Godot World Lab does not own
+### Godot Lab does not own
 
-* reusable grid topology
-* reusable chunk streaming policy
+* reusable grid topology truth
+* reusable streaming lifecycle truth
 * final Runenwerk procgen graph contracts
 * final Runenwerk SDF world truth
 * save formats
-* product semantics
+* ECS entity ownership
+* gameplay spawning decisions
 * final asset import architecture
 * Bevy adapter architecture
 
----
-
-## Long-Term Direction
-
-The proof should move toward this shape:
+### External ownership assumptions
 
 ```text
-WorldProfile
-→ generation stages
-→ layered chunk data
-→ features
-→ connectors
-→ placement candidates
-→ topology layers
-→ visual/collision formed products
+grid
+  owns topology/descriptor logic
+
+spatial_streaming
+  owns residency/request lifecycle
+
+godot_world_lab
+  owns Godot proof realization and migration adapters
 ```
 
-This should later map to Runenwerk as:
-
-```text
-Godot WorldProfile proof
-→ future Runenwerk ProcgenProgram / graph-backed document
-
-WorldLayer facts
-→ future world/product query data
-
-ChunkConnector
-→ future world/procgen continuity contract
-
-PlacementCandidate
-→ future gameplay/spawn/encounter input
-
-Visual and collision output
-→ formed products, not authoritative world truth
-```
+`chunk_provider.gd` must shrink over time into a streaming provider adapter, generation request builder, cache bridge, and compatibility facade. It must not remain the long-term owner of generation policy.
 
 ---
 
-## Milestone 1 — World Generation Contract
+## Stable Direction
 
-### File
+The stable architecture is contract-shaped, not algorithm-shaped.
+
+Concrete algorithms such as noise, Voronoi, SDF sampling, cellular automata, graph expansion, room carving, river routing, biome classification, or continent masking are strategies. They are not the architecture.
+
+Stable stage categories are:
+
+```text
+Field stages
+Layer stages
+Feature stages
+Continuity stages
+Candidate stages
+Projection stages
+Validation stages
+Diagnostic stages
+```
+
+Concrete stages may change. The generated product contract must remain stable.
+
+---
+
+## Canonical Product Flow
+
+```text
+WorldDefinitionSnapshot
+  immutable runtime generation definition
+
+GenerationContext
+  immutable request inputs for one chunk
+
+GenerationPipeline
+  ordered stages over a GenerationWorkingSet
+
+GeneratedWorldChunk
+  canonical data-only generated product
+
+TopologyProjectionSet
+  consumer-specific derived topology views
+
+FormationProductSet
+  seam-safe prepared data for consumers
+
+Godot realization
+  visual, collision, debug, and preview objects
+```
+
+`GeneratedChunkData` is compatibility output only. Long term, current consumers should receive it through `GeneratedChunkDataAdapter` until they can consume `GeneratedWorldChunk`, topology projections, or formation products directly.
+
+`logic_grid` is also compatibility-only. It should become a documented alias for a named topology projection, not the center of the generation model.
+
+---
+
+## Architecture Domains
+
+### 1. Streaming lifecycle
+
+Owned externally by `spatial_streaming`.
+
+Godot Lab receives requests, builds generation contexts, bridges cache identity, and reports provider lifecycle callbacks.
+
+Long-term role of:
+
+```text
+scripts/chunk_provider.gd
+```
+
+```text
+streaming provider adapter
+generation request builder
+cache bridge
+compatibility facade
+```
+
+---
+
+### 2. World definition
+
+Files:
+
+```text
+scripts/world_generation/definition/world_definition.gd
+scripts/world_generation/definition/world_definition_snapshot.gd
+scripts/world_generation/definition/world_definition_validator.gd
+```
+
+Responsibilities:
+
+```text
+WorldDefinition
+  author-facing Godot Resource / configuration
+
+WorldDefinitionSnapshot
+  immutable data-only runtime definition
+
+WorldDefinitionValidator
+  validates stage ordering, layer schemas, projection requests, and unsupported combinations
+```
+
+Rule:
+
+```text
+Generation stages consume WorldDefinitionSnapshot, not live Godot editor resources.
+```
+
+---
+
+### 3. Generation context
+
+Files:
+
+```text
+scripts/world_generation/context/generation_context.gd
+scripts/world_generation/context/chunk_generation_request.gd
+scripts/world_generation/context/world_space.gd
+```
+
+Responsibilities:
+
+```text
+GenerationContext
+  immutable inputs for one chunk generation
+
+ChunkGenerationRequest
+  provider-created request object
+
+WorldSpace
+  coordinate conversion and chunk/cell/volume bounds
+```
+
+Must include:
+
+```text
+world_definition_id
+world_definition_version
+world_definition_hash
+world_seed
+chunk_coord
+owned bounds
+sample bounds / halo bounds
+requested product kinds
+debug flags
+```
+
+Rule:
+
+```text
+Same definition snapshot + same context = same generated product.
+```
+
+---
+
+### 4. Generation pipeline
+
+Files:
+
+```text
+scripts/world_generation/pipeline/generation_pipeline.gd
+scripts/world_generation/pipeline/generation_stage.gd
+scripts/world_generation/pipeline/generation_working_set.gd
+scripts/world_generation/pipeline/generation_stage_result.gd
+```
+
+Responsibilities:
+
+```text
+GenerationPipeline
+  runs ordered stages
+
+GenerationStage
+  common interface for field/layer/feature/continuity/projection/diagnostic stages
+
+GenerationWorkingSet
+  mutable internal state during generation
+
+GenerationStageResult
+  status, diagnostics, emitted facts, validation errors
+```
+
+Rule:
+
+```text
+The working set is never the public product.
+It must be finalized into GeneratedWorldChunk.
+```
+
+---
+
+### 5. Semantic world facts
+
+Layer files:
+
+```text
+scripts/world_generation/layers/world_layer.gd
+scripts/world_generation/layers/world_layer_set.gd
+scripts/world_generation/layers/world_layer_schema.gd
+```
+
+Feature files:
+
+```text
+scripts/world_generation/features/world_feature.gd
+scripts/world_generation/features/world_feature_set.gd
+scripts/world_generation/features/world_feature_schema.gd
+```
+
+Rule:
+
+```text
+WorldLayer and WorldFeature are semantic generation facts.
+TopologyView is derived.
+```
+
+Features describe generated facts. They do not spawn scenes, entities, save records, assets, or products.
+
+---
+
+### 6. Fields
+
+Files:
+
+```text
+scripts/world_generation/fields/world_field.gd
+scripts/world_generation/fields/world_field_sample.gd
+scripts/world_generation/fields/world_field_registry.gd
+```
+
+Fields are deterministic value sources over world space. Supported value types may include scalar, categorical, mask, distance, region id, density, flow, signed, and volume values.
+
+Rule:
+
+```text
+Noise, Voronoi, SDF, authored masks, graphs, and simulations are field/stage strategies.
+They are not the architecture.
+```
+
+---
+
+### 7. Continuity
+
+Files:
+
+```text
+scripts/world_generation/continuity/continuity_contract.gd
+scripts/world_generation/continuity/continuity_fact.gd
+scripts/world_generation/continuity/continuity_resolver.gd
+scripts/world_generation/continuity/chunk_boundary_key.gd
+```
+
+Continuity covers more than chunk connectors:
+
+```text
+height continuity
+region continuity
+flow continuity
+volume continuity
+structure continuity
+vertical continuity
+graph continuity
+```
+
+Rule:
+
+```text
+Continuity must be computable without loaded neighbor chunks.
+```
+
+---
+
+### 8. Placement candidates
+
+Files:
+
+```text
+scripts/world_generation/placement/placement_candidate.gd
+scripts/world_generation/placement/placement_candidate_set.gd
+scripts/world_generation/placement/placement_policy.gd
+```
+
+Rule:
+
+```text
+Generation may emit opportunities.
+Gameplay decides actual spawning later.
+```
+
+---
+
+### 9. Topology projection
+
+Files:
+
+```text
+scripts/world_generation/topology/topology_view.gd
+scripts/world_generation/topology/topology_projection_set.gd
+scripts/world_generation/topology/topology_projector.gd
+scripts/world_generation/topology/topology_projection_policy.gd
+```
+
+Examples:
+
+```text
+visual_ground
+visual_liquid
+visual_solid
+collision_blocking
+navigation_walkable
+mining
+debug
+```
+
+Rule:
+
+```text
+grid receives topology views, not semantic world truth.
+```
+
+---
+
+### 10. Generated product
+
+Files:
+
+```text
+scripts/world_generation/products/generated_world_chunk.gd
+scripts/world_generation/products/generated_chunk_identity.gd
+scripts/world_generation/products/generated_chunk_data_adapter.gd
+```
+
+Canonical product shape:
+
+```text
+identity
+bounds
+world_layer_set
+world_feature_set
+continuity_fact_set
+placement_candidate_set
+topology_projection_set
+formation_product_set
+generation_diagnostics
+```
+
+Rule:
+
+```text
+GeneratedWorldChunk is data-only.
+```
+
+It must not contain Node, Resource handle, Mesh, Material, StaticBody3D, CollisionShape3D, PackedScene, save record, ECS entity, or Runenwerk SDF payload ownership.
+
+---
+
+### 11. Formation products
+
+Files:
+
+```text
+scripts/world_generation/formation/formation_product.gd
+scripts/world_generation/formation/formation_product_set.gd
+scripts/world_generation/formation/formation_builder.gd
+scripts/world_generation/formation/owned_halo_builder.gd
+```
+
+Rule:
+
+```text
+Formation prepares data for consumers.
+It does not render, collide, or define topology truth.
+```
+
+---
+
+### 12. Diagnostics and previews
+
+Files:
+
+```text
+scripts/world_generation/diagnostics/generation_diagnostics.gd
+scripts/world_generation/diagnostics/stage_diagnostics.gd
+scripts/world_generation/diagnostics/generated_chunk_report.gd
+scripts/previews/world_generation_preview.gd
+scripts/previews/topology_projection_preview.gd
+scripts/previews/continuity_preview.gd
+```
+
+Rule:
+
+```text
+Every generated chunk must be explainable by stage.
+Previews observe generated products; they do not own generation rules.
+```
+
+---
+
+## Milestone Roadmap
+
+## Phase 0 — Baseline lock and correction
+
+### M0.1 — Replace narrow roadmap language
+
+File:
+
+```text
+docs/proof-notes/world-generation-roadmap.md
+```
+
+Change:
+
+Replace `WorldProfile`-first wording with `WorldDefinition` and the canonical data-first pipeline.
+
+Done when:
+
+```text
+WorldDefinition
+→ GenerationContext
+→ GenerationPipeline
+→ semantic world facts
+→ continuity facts
+→ topology projections
+→ formation products
+→ Godot realization
+```
+
+is the explicit roadmap direction.
+
+---
+
+### M0.2 — Add canonical architecture contract
+
+File:
 
 ```text
 docs/proof-notes/world-generation-contract.md
 ```
 
-### Goal
-
-Define the proof vocabulary before continuing implementation.
-
-### Include
-
-* WorldProfile
-* WorldLayer
-* WorldFeature
-* ChunkConnector
-* PlacementCandidate
-* GenerationStage
-* GenerationDiagnostics
-
-### Done When
-
-The project has a clear document explaining what the generator produces, what it does not own, and how the proof maps toward Runenwerk later.
-
----
-
-## Milestone 2 — Temporary WorldProfile
-
-### File
+Done when the contract defines:
 
 ```text
-scripts/world_generation/world_profile.gd
+WorldDefinition
+WorldDefinitionSnapshot
+GenerationContext
+GenerationPipeline
+GenerationStage
+GenerationWorkingSet
+WorldField
+WorldLayer
+WorldFeature
+ContinuityContract
+ContinuityFact
+PlacementCandidate
+TopologyView
+TopologyProjectionSet
+FormationProduct
+GeneratedWorldChunk
+GenerationDiagnostics
 ```
 
-### Goal
-
-Introduce a temporary Godot-side `WorldProfile` concept.
-
-This is not the final Runenwerk model. It is a proof object for organizing generation settings.
-
-### Should Contain
-
-* profile_id
-* chunk_size
-* seed behavior
-* noise settings
-* layer settings
-* feature settings
-* connector settings
-* walkability settings
-* debug settings
-
-### Done When
-
-`chunk_provider.gd` can be described as evaluating a `WorldProfile` into generated chunk data.
+and states all ownership boundaries.
 
 ---
 
-## Milestone 3 — Refactor Generation Into Named Stages
+## Phase 1 — Data contracts before runtime refactor
 
-### File
+### M1 — Define identity, hashing, and determinism rules
+
+Files:
+
+```text
+docs/proof-notes/world-generation-contract.md
+scripts/world_generation/products/generated_chunk_identity.gd
+```
+
+Done when identity includes:
+
+```text
+world_definition_id
+world_definition_version
+world_definition_hash
+generation_settings_hash
+chunk_coord
+requested_product_set
+```
+
+and tests/smoke checks prove same identity produces the same product signature.
+
+---
+
+### M2 — Add WorldDefinitionSnapshot
+
+Files:
+
+```text
+scripts/world_generation/definition/world_definition.gd
+scripts/world_generation/definition/world_definition_snapshot.gd
+scripts/world_generation/definition/world_definition_validator.gd
+```
+
+Done when a live Godot-facing definition can compile into an immutable data-only snapshot.
+
+Do not add concrete continent, cave, dungeon, Voronoi, or SDF logic here.
+
+---
+
+### M3 — Add GenerationContext
+
+Files:
+
+```text
+scripts/world_generation/context/generation_context.gd
+scripts/world_generation/context/chunk_generation_request.gd
+scripts/world_generation/context/world_space.gd
+```
+
+Done when `GenerationContext` can describe chunk bounds, owned bounds, sample/halo bounds, world seed, definition hash, and requested products without accessing scene state.
+
+---
+
+## Phase 2 — Pipeline spine
+
+### M4 — Add pipeline and working set
+
+Files:
+
+```text
+scripts/world_generation/pipeline/generation_pipeline.gd
+scripts/world_generation/pipeline/generation_stage.gd
+scripts/world_generation/pipeline/generation_working_set.gd
+scripts/world_generation/pipeline/generation_stage_result.gd
+```
+
+Done when a no-op pipeline can run deterministic ordered stages and return a stage report.
+
+---
+
+### M5 — Wrap current generation as one legacy stage
+
+File:
+
+```text
+scripts/world_generation/pipeline/stages/legacy_chunk_generation_stage.gd
+```
+
+Also touched:
+
+```text
+scripts/chunk_provider.gd
+method: generate_chunk_generation_result(...)
+```
+
+Done when `chunk_provider.gd` still returns the current compatibility shape, but internally delegates to a generation pipeline.
+
+---
+
+### M6 — Add generated product adapter
+
+Files:
+
+```text
+scripts/world_generation/products/generated_world_chunk.gd
+scripts/world_generation/products/generated_chunk_data_adapter.gd
+scripts/chunk_provider.gd
+method: make_generated_chunk_data(...)
+```
+
+Done when the pipeline emits `GeneratedWorldChunk`, and the adapter converts it to current `GeneratedChunkData`.
+
+---
+
+## Phase 3 — Semantic data model
+
+### M7 — Add world layer model
+
+Files:
+
+```text
+scripts/world_generation/layers/world_layer.gd
+scripts/world_generation/layers/world_layer_set.gd
+scripts/world_generation/layers/world_layer_schema.gd
+```
+
+Done when current `terrain_cells` and `topology_layers` can be represented as semantic layers plus derived topology views.
+
+---
+
+### M8 — Add topology projection model
+
+Files:
+
+```text
+scripts/world_generation/topology/topology_view.gd
+scripts/world_generation/topology/topology_projection_set.gd
+scripts/world_generation/topology/topology_projector.gd
+scripts/world_generation/topology/topology_projection_policy.gd
+```
+
+Done when current `ground`, `water`, `solid`, and `cliff` binary grids are emitted as named topology projections.
+
+---
+
+### M9 — Move logic_grid to compatibility-only status
+
+Files:
+
+```text
+scripts/world_generation/products/generated_chunk_data_adapter.gd
+scripts/chunk_provider.gd
+method: generate_chunk_logic_grid(...)
+method: make_generated_chunk_data(...)
+```
+
+Done when `logic_grid` is documented and tested as:
+
+```text
+compatibility alias for topology_projection["solid"]
+```
+
+---
+
+## Phase 4 — Formation boundary
+
+### M10 — Extract owned-halo formation into formation domain
+
+Files:
+
+```text
+scripts/world_generation/formation/formation_product.gd
+scripts/world_generation/formation/formation_product_set.gd
+scripts/world_generation/formation/formation_builder.gd
+scripts/world_generation/formation/owned_halo_builder.gd
+scripts/chunk_provider.gd
+method: make_formation_layers(...)
+```
+
+Done when formation is data-first and no longer buried inside provider generation.
+
+---
+
+### M11 — Update visual builder to consume formation products
+
+File:
+
+```text
+scripts/chunk_visual_builder.gd
+method: build_visual_plan_from_generated_chunk(...)
+```
+
+Done when visual plan construction can consume `FormationProductSet` through the adapter path.
+
+---
+
+### M12 — Update collision builder to consume collision projection
+
+File:
+
+```text
+scripts/collision/chunk_collision_builder.gd
+```
+
+Done when collision consumes a named collision topology projection or collision formation product, not raw terrain assumptions.
+
+---
+
+## Phase 5 — Fields, features, continuity, placement
+
+### M13 — Add world field contract
+
+Files:
+
+```text
+scripts/world_generation/fields/world_field.gd
+scripts/world_generation/fields/world_field_sample.gd
+scripts/world_generation/fields/world_field_registry.gd
+```
+
+Done when a stage can sample named fields through a generic interface.
+
+Only add interface and simple deterministic proof fields here.
+
+---
+
+### M14 — Add feature model
+
+Files:
+
+```text
+scripts/world_generation/features/world_feature.gd
+scripts/world_generation/features/world_feature_set.gd
+scripts/world_generation/features/world_feature_schema.gd
+```
+
+Done when current room/path/debug-marker concepts can be represented as generic features, while old debug markers still exist through the compatibility adapter.
+
+---
+
+### M15 — Add continuity model
+
+Files:
+
+```text
+scripts/world_generation/continuity/continuity_contract.gd
+scripts/world_generation/continuity/continuity_fact.gd
+scripts/world_generation/continuity/continuity_resolver.gd
+scripts/world_generation/continuity/chunk_boundary_key.gd
+```
+
+Done when a continuity fact can be deterministically computed from world-space boundary keys without loaded neighbors.
+
+---
+
+### M16 — Add placement candidate model
+
+Files:
+
+```text
+scripts/world_generation/placement/placement_candidate.gd
+scripts/world_generation/placement/placement_candidate_set.gd
+scripts/world_generation/placement/placement_policy.gd
+```
+
+Done when generation emits opportunities separately from features and debug markers.
+
+No spawning. No scenes. No ECS. No save records.
+
+---
+
+## Phase 6 — Provider and cache refactor
+
+### M17 — Shrink chunk_provider.gd into adapter role
+
+File:
 
 ```text
 scripts/chunk_provider.gd
 ```
 
-### Main Method
+Methods to reduce/delegate:
 
 ```text
 generate_chunk_generation_result(...)
-```
-
-### Goal
-
-Keep current behavior, but organize it as a generic pipeline.
-
-### Target Stage Shape
-
-```text
-sample_base_fields
-classify_world_layers
-apply_world_features
-apply_chunk_connectors
-repair_connectivity
-derive_topology_layers
-build_generation_diagnostics
-```
-
-### Done When
-
-The generator reads like a staged world-generation pipeline instead of one hardcoded generator.
-
----
-
-## Milestone 4 — World-Space Consistency
-
-### File
-
-```text
-scripts/chunk_provider.gd
-```
-
-### Focus Methods
-
-```text
-_balance_walkable_percent(...)
-_sorted_cells_by_hash(...)
-_initial_solid_cell(...)
 _generate_base_terrain_cells(...)
-```
-
-### Goal
-
-All deterministic terrain decisions should use world-space coordinates where appropriate.
-
-### Problem To Fix
-
-Some balancing/repair logic may still use local cell coordinates, which can repeat the same pattern in every chunk.
-
-### Done When
-
-Noise, balancing, repair, and placement ordering do not rely on local-only coordinates for global decisions.
-
----
-
-## Milestone 5 — ChunkConnector Contract
-
-### File
-
-```text
-scripts/chunk_provider.gd
-```
-
-### Goal
-
-Add a generic chunk continuity concept.
-
-A connector can represent:
-
-* road continuation
-* river continuation
-* corridor continuation
-* cave tunnel continuation
-* biome transition
-* arena entrance
-* generated path continuation
-
-### Suggested Helper Methods
-
-```text
-_connector_points_for_chunk(...)
-_shared_connector_for_edge(...)
-_apply_chunk_connectors(...)
-```
-
-### Done When
-
-Neighbor chunks can agree on shared exits or continuation points.
-
----
-
-## Milestone 6 — Generalize Rooms And Paths Into WorldFeature
-
-### File
-
-```text
-scripts/chunk_provider.gd
-```
-
-### Current Methods To Evolve
-
-```text
 _carve_rooms_and_paths(...)
-_room_rects_for_chunk(...)
-_carve_path(...)
-_carve_rect(...)
+_repair_walkable_connectivity(...)
+_balance_walkable_percent(...)
+_derive_topology_layers(...)
+_terrain_diagnostics(...)
 ```
 
-### Goal
+Done when generation policy lives under:
 
-Treat rooms and paths as one kind of generic feature, not as the whole generator model.
+```text
+scripts/world_generation/
+```
 
-### Generic Feature Types
-
-* open_area
-* corridor
-* barrier
-* liquid_pool
-* resource_cluster
-* arena
-* landmark
-* spawn_zone
-* transition
-
-### Done When
-
-Diagnostics and generated data speak in terms of features, not only hardcoded rooms and paths.
+and `chunk_provider.gd` only owns request lifecycle, cache interaction, loaded chunk records, and compatibility methods.
 
 ---
 
-## Milestone 7 — Placement Candidates
+### M18 — Update cache to store generated product identity
 
-### File
+Files:
 
 ```text
-scripts/chunk_provider.gd
+scripts/chunk_cache.gd
+scripts/world_generation/cache/generated_chunk_cache_key.gd
+scripts/world_generation/cache/generated_chunk_cache_policy.gd
 ```
 
-### Goal
+Done when cache key includes:
 
-Generation should suggest valid placement locations without spawning gameplay objects directly.
+```text
+chunk_coord
+world_definition_id
+world_definition_version
+world_definition_hash
+generation_settings_hash
+requested_product_set
+```
 
-### Candidate Types
-
-* spawn_candidate
-* resource_candidate
-* landmark_candidate
-* cover_candidate
-* hazard_candidate
-* entrance_candidate
-* exit_candidate
-
-### Boundary Rule
-
-World generation suggests valid places. Gameplay systems decide what actually spawns.
-
-### Done When
-
-Generated chunk data exposes placement candidates separately from debug markers.
+Cache must not store streaming lifecycle state or Godot realization.
 
 ---
 
-## Milestone 8 — Stage Diagnostics
+## Phase 7 — Diagnostics and observation
 
-### File
+### M19 — Add stage diagnostics
+
+Files:
 
 ```text
-scripts/chunk_provider.gd
+scripts/world_generation/diagnostics/generation_diagnostics.gd
+scripts/world_generation/diagnostics/stage_diagnostics.gd
+scripts/world_generation/diagnostics/generated_chunk_report.gd
 ```
 
-### Goal
-
-Make generation inspectable.
-
-### Diagnostics Should Include
-
-* profile id
-* generation version
-* settings hash
-* base field stats
-* layer counts
-* feature counts
-* connector counts
-* placement candidate counts
-* walkable percentage
-* sampled neighbor chunk count
-* formation sample cache count
-
-### Done When
-
-A bad generated chunk can be debugged by stage instead of by guessing.
+Done when every generated chunk reports definition identity, stage list, stage status, emitted layer counts, emitted feature counts, continuity fact counts, placement candidate counts, topology projection counts, formation product counts, and validation errors.
 
 ---
 
-## Milestone 9 — Formation Sample Cache Bounds
+### M20 — Add world generation previews
 
-### File
-
-```text
-scripts/chunk_provider.gd
-```
-
-### Goal
-
-Prevent infinite streaming from growing generation sampling caches forever.
-
-### Add Concepts
+Files:
 
 ```text
-max_formation_sample_cache_entries
-last_generation_settings_hash
-_prune_formation_sample_cache(...)
-_clear_generation_transient_caches_if_settings_changed(...)
+scripts/previews/world_generation_preview.gd
+scripts/previews/topology_projection_preview.gd
+scripts/previews/continuity_preview.gd
+scenes/previews/world_generation_preview.tscn
 ```
 
-### Done When
+Done when previews observe the same `GeneratedWorldChunk` products as runtime.
 
-Flying through the world for a long time does not continuously increase formation sample cache size.
+No duplicate topology rules in preview scripts.
 
 ---
 
-## Milestone 10 — Keep Visuals And Collision Derived
+## Phase 8 — Dimensionality hardening
 
-### Files
+### M21 — Add domain descriptors
+
+Files:
 
 ```text
+scripts/world_generation/layers/world_layer_schema.gd
+scripts/world_generation/topology/topology_view.gd
+scripts/world_generation/context/world_space.gd
+```
+
+Done when layers and topology views declare one of:
+
+```text
+cell_grid_2d
+surface_2_5d
+stacked_layers
+volume_grid_3d
+graph_region
+hybrid
+```
+
+No rendering change required yet.
+
+---
+
+### M22 — Prove stacked-layer generation
+
+Files:
+
+```text
+scripts/world_generation/
 scripts/chunk_visual_builder.gd
 scripts/collision/chunk_collision_builder.gd
 ```
 
-### Rule
+Done when one generated chunk can contain multiple semantic vertical layers and derived topology projections without duplicating the same flat layer above itself.
 
-Generation outputs world facts.
-
-Visuals and collision are formed from those facts.
-
-### Generation May Output
-
-* layers
-* features
-* connectors
-* placement candidates
-* diagnostics
-
-### Generation Must Not Own
-
-* Godot Mesh
-* Godot Material
-* StaticBody3D
-* CollisionShape3D
-* MultiMeshInstance3D
-* PackedScene runtime ownership
-
-### Done When
-
-`chunk_provider.gd` remains world-data-oriented, while visual and collision systems remain derived product builders.
+This is where the old same-terrain-repeated-vertically bug class should become structurally impossible.
 
 ---
 
-## Execution Order
+### M23 — Prove one non-flat topology projection
+
+Files:
 
 ```text
-1. Create world-generation-contract.md
-2. Add world_profile.gd
-3. Refactor chunk_provider.gd into named stages
-4. Fix world-space consistency
-5. Add ChunkConnector helpers
-6. Generalize rooms/paths into WorldFeature terminology
-7. Add placement candidates
-8. Add stage diagnostics
-9. Bound formation sample cache
-10. Only then continue visual/collision hardening
+scripts/world_generation/topology/
+scripts/chunk_visual_builder.gd
 ```
+
+Done when a topology projection can represent something other than one flat surface layer, while `grid` still only receives the projection format it owns.
+
+---
+
+## Phase 9 — Multiple world definitions
+
+### M24 — Add first real non-legacy world definition
+
+Files:
+
+```text
+scripts/world_generation/definition/
+scripts/world_generation/pipeline/stages/
+```
+
+Done when the system can run one definition that is not just the legacy generator wrapped in pipeline form.
+
+Still no concrete long-term commitment to any algorithm.
+
+---
+
+### M25 — Add second meaningfully different world definition
+
+Files:
+
+```text
+scripts/world_generation/definition/
+scripts/world_generation/pipeline/stages/
+```
+
+Done when two different world definitions use the same contracts:
+
+```text
+same pipeline interface
+same generated product model
+same topology projection model
+same diagnostics model
+same provider adapter
+```
+
+This is the minimum proof before discussing extraction again.
+
+---
+
+## Phase 10 — Extraction findings, not extraction
+
+### M26 — Write procgen extraction findings
+
+File:
+
+```text
+docs/proof-notes/procgen-extraction-findings.md
+```
+
+Done when the doc answers:
+
+```text
+Which contracts stayed stable?
+Which parts remained Godot-specific?
+Which parts would be reusable?
+Which parts are still too tied to Godot?
+Does Runenwerk need this?
+Would a procgen repo own anything real yet?
+```
+
+---
+
+### M27 — Decide whether Crystonix/procgen is justified
+
+File:
+
+```text
+docs/proof-notes/procgen-extraction-decision.md
+```
+
+Possible decisions:
+
+```text
+no extraction
+contract docs only
+minimal procgen_core
+minimal procgen_fields
+minimal procgen_pipeline
+defer until Runenwerk integration pressure
+```
+
+Default expected decision:
+
+```text
+defer extraction unless two world definitions and one non-Godot consumer need are proven
+```
+
+---
+
+## Revised Milestone Order
+
+```text
+0. Revise roadmap language from WorldProfile to WorldDefinition.
+1. Add canonical world-generation-contract.md.
+2. Define identity/hash/determinism rules.
+3. Add WorldDefinitionSnapshot.
+4. Add GenerationContext.
+5. Add GenerationPipeline and GenerationWorkingSet.
+6. Wrap current generator as legacy stage.
+7. Add GeneratedWorldChunk and compatibility adapter.
+8. Add WorldLayer model.
+9. Add TopologyProjection model.
+10. Make logic_grid compatibility-only.
+11. Extract formation domain.
+12. Update visual builder to consume formation products.
+13. Update collision builder to consume collision projection.
+14. Add WorldField contract.
+15. Add WorldFeature model.
+16. Add ContinuityContract model.
+17. Add PlacementCandidate model.
+18. Shrink chunk_provider.gd into provider/cache adapter.
+19. Update cache identity.
+20. Add stage diagnostics.
+21. Add world-generation previews.
+22. Add domain descriptors for 2D/2.5D/stacked/3D/graph.
+23. Prove stacked-layer generation.
+24. Prove one non-flat topology projection.
+25. Add first non-legacy world definition.
+26. Add second meaningfully different world definition.
+27. Write procgen extraction findings.
+28. Decide whether extraction is justified.
+```
+
+---
+
+## Immediate Implementation Package
+
+Do this package first:
+
+```text
+Package A = M0.1 + M0.2
+```
+
+Files:
+
+```text
+docs/proof-notes/world-generation-roadmap.md
+docs/proof-notes/world-generation-contract.md
+```
+
+Rules:
+
+```text
+No runtime code yet.
+No new world algorithm yet.
+No concrete continent, cave, Voronoi, SDF, Runenwerk integration, save/load, ECS, asset extraction, or gameplay spawning.
+```
+
+Package A is complete when the repository contains the updated roadmap and the canonical architecture contract.
 
 ---
 
@@ -434,17 +1105,20 @@ Do not do these during this roadmap:
 * no enemy spawning
 * no final gameplay loop
 * no final procgen graph schema
+* no premature `Crystonix/procgen` extraction
+* no algorithm-specific architecture lock-in
 
 ---
 
 ## Success Criteria
 
-This roadmap is complete when the Godot lab can prove:
+This roadmap is complete when Godot Lab proves:
 
 ```text
-A profile-driven chunk generator can produce continuous streamed world data,
-with generic layers, features, connectors, placement candidates, diagnostics,
-and derived visual/collision products.
+A deterministic WorldDefinition-driven pipeline can generate streamed world facts,
+derive topology projections,
+produce seam-safe formation products,
+and realize Godot visuals/collision/debug output without making generation truth depend on Godot runtime objects.
 ```
 
-The result should be flexible enough to support many future world types, while still remaining a Godot-side proof instead of premature Runenwerk architecture.
+The result must support multiple meaningfully different world definitions before extraction is reconsidered.
