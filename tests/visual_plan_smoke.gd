@@ -15,16 +15,23 @@ func _initialize() -> void:
 	var manual_grid: Array = [[1]]
 	var manual_plan: Dictionary = builder.build_visual_plan(Vector3i.ZERO, manual_grid)
 	_assert(manual_plan["tiles"].size() == 4, "one wall creates four visual corners")
-	_assert(manual_plan["buckets"].has("corner_180"), "manual grid includes stable corner_180 key")
+	_assert(manual_plan["buckets"].has("solid"), "manual grid includes solid layer bucket")
+	_assert(manual_plan["buckets"]["solid"].has("corner_180"), "manual grid includes stable corner_180 key")
 	_assert(_all_tiles_are_non_empty(manual_plan["tiles"]), "empty tiles are skipped")
 	_assert(_contains_rotation(manual_plan["tiles"], 180), "rotation data is preserved")
 
 	var provider: Node = Node.new()
 	provider.set_script(load("res://scripts/chunk_provider.gd"))
-	var generated_grid: Array = provider.generate_chunk_logic_grid(Vector3i(2, 0, -3))
-	var generated_plan: Dictionary = builder.build_visual_plan(Vector3i(2, 0, -3), generated_grid)
+	var generation_result: Dictionary = provider.generate_chunk_generation_result(Vector3i(2, 0, -3))
+	var generated_data: Dictionary = provider.make_generated_chunk_data(
+		Vector3i(2, 0, -3),
+		generation_result["logic_grid"],
+		generation_result
+	)
+	var generated_plan: Dictionary = builder.build_visual_plan_from_generated_chunk(generated_data)
 	_assert(generated_plan["tiles"].size() > 0, "generated chunk produces visual descriptors")
-	_assert(generated_plan["buckets"].keys().size() > 0, "generated descriptors are grouped by asset key")
+	_assert(generated_plan["visual_layers"].size() >= 3, "generated descriptors are grouped by visual layer")
+	_assert(generated_plan["buckets"].keys().size() > 0, "generated descriptors are grouped by layer and asset key")
 
 	provider.free()
 	quit(1 if failed else 0)

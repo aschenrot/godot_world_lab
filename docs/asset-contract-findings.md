@@ -11,6 +11,9 @@ The lab has a useful tile-kit contract:
 - Canonical base mesh keys are:
   `corner`, `edge`, `t`, `diagonal`, `full`, and `debug`.
 - Rotations are descriptor data from `grid`, not authored mesh variants.
+- Authored base mesh orientation corrections are declared in the tile-kit
+  manifest and applied by `TileMeshCatalog`; the diagonal mesh currently has a
+  Godot-side correction so Rust descriptor rules stay unchanged.
 - Runtime lookup happens through `TileMeshCatalog`.
 - Missing mesh and material keys are observable diagnostics.
 

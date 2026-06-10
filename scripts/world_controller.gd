@@ -131,7 +131,7 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 		chunk_provider.chunk_size_cells,
 		_take_pooled_visual_root()
 	)
-	_add_collision_if_enabled(visual_root, chunk_coord, visual_plan)
+	_add_collision_if_enabled(visual_root, chunk_coord, generated_chunk_data)
 	_add_placed_objects_if_enabled(visual_root, chunk_coord)
 	_apply_overlay(visual_root, chunk_coord)
 	visual_root.position = Vector3(
@@ -341,15 +341,19 @@ func _take_pooled_visual_root() -> Node3D:
 func _add_collision_if_enabled(
 	visual_root: Node3D,
 	chunk_coord: Vector3i,
-	visual_plan: Dictionary
+	generated_chunk_data: Dictionary
 ) -> void:
 	if not enable_collision_prototype or chunk_collision_builder == null:
 		return
+	var liquid_blocks := true
+	if chunk_provider != null and chunk_provider.has_method("generation_diagnostics"):
+		liquid_blocks = bool(chunk_provider.generation_diagnostics().get("liquid_blocks_movement", true))
 	var collision_body: StaticBody3D = chunk_collision_builder.build_chunk_collision(
 		chunk_coord,
-		visual_plan,
+		generated_chunk_data,
 		chunk_edge_meters,
-		chunk_provider.chunk_size_cells
+		chunk_provider.chunk_size_cells,
+		{"liquid_blocks_movement": liquid_blocks}
 	)
 	visual_root.add_child(collision_body)
 

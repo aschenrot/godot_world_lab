@@ -55,28 +55,33 @@ func build_tile_correctness_lab(
 
 	var mapper := _make_mapper()
 	var mask_matrix: Array = []
+	var generation_preview: Dictionary = {}
 	var seam_fixture: Dictionary = {}
 	if mapper != null:
 		mask_matrix = _build_mask_matrix(content_root, mapper, catalog)
+		generation_preview = _build_generation_preview(content_root, provider)
 		seam_fixture = _build_cross_chunk_seam_fixture(content_root, provider, builder, catalog)
 	if created_provider:
 		provider.free()
 
 	var catalog_report: Dictionary = catalog.get_asset_report()
 	diagnostics = {
-		"preview_type": "tile_correctness_lab",
+		"preview_type": "layered_terrain_correctness_lab",
 		"mask_count": mask_matrix.size(),
+		"mask_layer_count": _preview_layer_specs().size(),
 		"mask_matrix": mask_matrix,
 		"cross_chunk_seam": seam_fixture,
+		"generation_preview": generation_preview,
 		"missing_asset_keys": catalog_report.get("missing_asset_keys", []),
 		"missing_material_keys": catalog_report.get("missing_material_keys", []),
 		"catalog": catalog_report,
 		"is_valid": (
 			mapper != null
-			and mask_matrix.size() == 16
+			and mask_matrix.size() == 16 * _preview_layer_specs().size()
 			and seam_fixture.get("duplicate_world_corners", []).is_empty()
 			and seam_fixture.get("emitted_out_of_bounds_corners", []).is_empty()
 			and int(seam_fixture.get("invalid_plan_count", 0)) == 0
+			and bool(generation_preview.get("is_valid", false))
 			and catalog_report.get("missing_asset_keys", []).is_empty()
 			and catalog_report.get("missing_material_keys", []).is_empty()
 		),
@@ -94,42 +99,63 @@ func _build_mask_matrix(content_root: Node3D, mapper: Object, catalog: RefCounte
 	content_root.add_child(mask_root)
 
 	var mask_diagnostics: Array[Dictionary] = []
-	for mask in range(16):
-		var mask_bits := _mask_bits(mask)
-		var panel := Node3D.new()
-		panel.name = "Mask_%s" % mask_bits
-		panel.position = Vector3(float(mask % 4) * 3.0, 0.0, float(mask / 4) * 3.0)
-		mask_root.add_child(panel)
+	var layer_specs := _preview_layer_specs()
+	for layer_index in range(layer_specs.size()):
+		var layer_spec: Dictionary = layer_specs[layer_index]
+		var layer_id := String(layer_spec["layer_id"])
+		for mask in range(16):
+			var mask_bits := _mask_bits(mask)
+			var panel := Node3D.new()
+			panel.name = "Mask_%s_%s" % [layer_id, mask_bits]
+			panel.position = Vector3(
+				float(mask % 4) * 3.0,
+				float(layer_index) * 1.15,
+				float(mask / 4) * 3.0 + float(layer_index) * 14.0
+			)
+			mask_root.add_child(panel)
 
-		var asset_key := String(mapper.asset_key_for_mask(mask))
-		var rotation := int(mapper.rotation_degrees_for_mask(mask))
-		var kind := String(mapper.kind_for_mask(mask))
-		panel.set_meta("mask", mask)
-		panel.set_meta("asset_key", asset_key)
-		panel.set_meta("rotation_degrees_cw", rotation)
-		panel.set_meta("kind", kind)
+			var asset_key := String(mapper.asset_key_for_mask(mask))
+			var rotation := int(mapper.rotation_degrees_for_mask(mask))
+			var kind := String(mapper.kind_for_mask(mask))
+			var transform_info: Dictionary = catalog.describe_tile_transform(asset_key, rotation)
+			panel.set_meta("layer_id", layer_id)
+			panel.set_meta("mask", mask)
+			panel.set_meta("asset_key", asset_key)
+			panel.set_meta("rotation_degrees_cw", rotation)
+			panel.set_meta("effective_rotation_degrees_cw", transform_info["effective_rotation_degrees_cw"])
+			panel.set_meta("kind", kind)
 
-		_add_occupancy_markers(panel, mask)
-		if asset_key != "empty":
-			_add_catalog_mesh_preview(panel, catalog, asset_key, rotation)
-		_add_label(
-			panel,
-			"%s\n%s\n%s deg" % [mask_bits, asset_key, rotation],
-			Vector3(-1.25, 0.65, 1.25)
-		)
+			_add_occupancy_markers(panel, mask)
+			if asset_key != "empty":
+				_add_catalog_mesh_preview(panel, catalog, asset_key, transform_info, layer_spec)
+			_add_label(
+				panel,
+				"%s\n%s\n%s d / %s e\n%s" % [
+					mask_bits,
+					asset_key,
+					rotation,
+					transform_info["effective_rotation_degrees_cw"],
+					layer_id,
+				],
+				Vector3(-1.25, 0.65, 1.25)
+			)
 
-		mask_diagnostics.append({
-			"mask": mask,
-			"asset_key": asset_key,
-			"rotation_degrees_cw": rotation,
-			"kind": kind,
-			"expected": EXPECTED_DESCRIPTOR_TABLE[mask],
-			"matches_expected": (
-				asset_key == EXPECTED_DESCRIPTOR_TABLE[mask]["asset_key"]
-				and rotation == int(EXPECTED_DESCRIPTOR_TABLE[mask]["rotation_degrees_cw"])
-				and kind == EXPECTED_DESCRIPTOR_TABLE[mask]["kind"]
-			),
-		})
+			mask_diagnostics.append({
+				"layer_id": layer_id,
+				"mask": mask,
+				"asset_key": asset_key,
+				"rotation_degrees_cw": rotation,
+				"descriptor_rotation_degrees_cw": transform_info["descriptor_rotation_degrees_cw"],
+				"catalog_rotation_correction_degrees_cw": transform_info["catalog_rotation_correction_degrees_cw"],
+				"effective_rotation_degrees_cw": transform_info["effective_rotation_degrees_cw"],
+				"kind": kind,
+				"expected": EXPECTED_DESCRIPTOR_TABLE[mask],
+				"matches_expected": (
+					asset_key == EXPECTED_DESCRIPTOR_TABLE[mask]["asset_key"]
+					and rotation == int(EXPECTED_DESCRIPTOR_TABLE[mask]["rotation_degrees_cw"])
+					and kind == EXPECTED_DESCRIPTOR_TABLE[mask]["kind"]
+				),
+			})
 
 	return mask_diagnostics
 
@@ -209,7 +235,7 @@ func _build_cross_chunk_seam_fixture(
 			):
 				emitted_out_of_bounds_corners.append(data)
 
-			var world_key := _world_corner_key(data["world_corner"])
+			var world_key := _world_corner_key(data["world_corner"], data.get("layer_id", "solid"))
 			if world_corner_owner.has(world_key):
 				duplicate_world_corners.append(world_key)
 			else:
@@ -222,7 +248,11 @@ func _build_cross_chunk_seam_fixture(
 					str(local_corner),
 					str(data["world_corner"]),
 					data["asset_key"],
-					data["rotation_degrees_cw"],
+					"%s/%s %s" % [
+						data["rotation_degrees_cw"],
+						data.get("effective_rotation_degrees_cw", data["rotation_degrees_cw"]),
+						data.get("layer_id", ""),
+					],
 				],
 				chunk_root.position + Vector3(float(local_corner.x) + 0.08, 0.9, float(local_corner.y) + 0.08),
 				0.045
@@ -251,6 +281,43 @@ func _build_cross_chunk_seam_fixture(
 	}
 
 
+func _build_generation_preview(content_root: Node3D, provider: Node) -> Dictionary:
+	var preview_root := Node3D.new()
+	preview_root.name = "GenerationPreview"
+	preview_root.position = Vector3(16.0, 0.0, 15.0)
+	content_root.add_child(preview_root)
+
+	var chunk_coord := Vector3i.ZERO
+	var result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
+	var diagnostics: Dictionary = result.get("diagnostics", {})
+	var topology_layers: Dictionary = result.get("topology_layers", {})
+	var layer_reports: Dictionary = {}
+	for layer_id in topology_layers:
+		layer_reports[layer_id] = _layer_grid_report(topology_layers[layer_id])
+
+	_add_label(
+		preview_root,
+		"generation\nopen %s%%\nsolid %s%%\nwater %s%%\nregions %s" % [
+			diagnostics.get("open_percent", 0),
+			diagnostics.get("solid_percent", 0),
+			diagnostics.get("liquid_percent", 0),
+			diagnostics.get("connected_walkable_region_count", 0),
+		],
+		Vector3.ZERO,
+		0.07
+	)
+	return {
+		"chunk_coord": chunk_coord,
+		"diagnostics": diagnostics,
+		"layer_reports": layer_reports,
+		"is_valid": (
+			int(diagnostics.get("open_percent", 0)) >= provider.target_walkable_min_percent
+			and int(diagnostics.get("open_percent", 0)) <= provider.target_walkable_max_percent
+			and int(diagnostics.get("dominant_walkable_region", 0)) > 0
+		),
+	}
+
+
 func _add_occupancy_markers(parent: Node3D, mask: int) -> void:
 	var positions := [
 		Vector3(-0.42, 0.0, -0.42),
@@ -275,16 +342,21 @@ func _add_catalog_mesh_preview(
 	parent: Node3D,
 	catalog: RefCounted,
 	asset_key: String,
-	rotation_degrees_cw: int
+	transform_info: Dictionary,
+	layer_spec: Dictionary
 ) -> void:
 	var preview := MeshInstance3D.new()
 	preview.name = "Mesh_%s" % asset_key
 	preview.mesh = catalog.get_mesh(asset_key)
-	preview.material_override = catalog.get_material(asset_key)
+	preview.material_override = catalog.get_material_for_tile({
+		"asset_key": asset_key,
+		"material_variant": layer_spec.get("material_variant", layer_spec.get("layer_id", "solid")),
+	})
 	preview.position = Vector3(0.0, 0.18, 0.0)
-	preview.rotation_degrees = Vector3(0.0, -float(rotation_degrees_cw), 0.0)
+	preview.rotation_degrees = Vector3(0.0, -float(transform_info["effective_rotation_degrees_cw"]), 0.0)
 	preview.set_meta("asset_key", asset_key)
-	preview.set_meta("rotation_degrees_cw", rotation_degrees_cw)
+	preview.set_meta("rotation_degrees_cw", transform_info["descriptor_rotation_degrees_cw"])
+	preview.set_meta("effective_rotation_degrees_cw", transform_info["effective_rotation_degrees_cw"])
 	parent.add_child(preview)
 
 
@@ -338,8 +410,8 @@ func _make_mapper() -> Object:
 	return ClassDB.instantiate("GodotGridTopologyMapper") as Object
 
 
-func _world_corner_key(world_corner: Vector2i) -> String:
-	return "%s:%s" % [world_corner.x, world_corner.y]
+func _world_corner_key(world_corner: Vector2i, layer_id: String = "solid") -> String:
+	return "%s|%s:%s" % [layer_id, world_corner.x, world_corner.y]
 
 
 func _chunk_key(chunk_coord: Vector3i) -> String:
@@ -351,6 +423,29 @@ func _mask_bits(mask: int) -> String:
 	for bit in range(3, -1, -1):
 		bits += "1" if (mask & (1 << bit)) != 0 else "0"
 	return bits
+
+
+func _preview_layer_specs() -> Array[Dictionary]:
+	return [
+		{"layer_id": "ground", "material_variant": "ground"},
+		{"layer_id": "water", "material_variant": "water"},
+		{"layer_id": "solid", "material_variant": "solid"},
+	]
+
+
+func _layer_grid_report(grid: Array) -> Dictionary:
+	var occupied := 0
+	var total := 0
+	for row in grid:
+		for cell in row:
+			total += 1
+			if int(cell) == 1:
+				occupied += 1
+	return {
+		"occupied": occupied,
+		"total": total,
+		"occupied_percent": int(round(float(occupied) * 100.0 / float(maxi(total, 1)))),
+	}
 
 
 func _clear_generated_children() -> void:

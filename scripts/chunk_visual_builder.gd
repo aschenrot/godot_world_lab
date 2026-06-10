@@ -1,5 +1,10 @@
 extends RefCounted
 
+const LAYER_GROUND := "ground"
+const LAYER_SOLID := "solid"
+const LAYER_WATER := "water"
+const LAYER_CLIFF := "cliff"
+
 var topology_mapper: Object
 
 
@@ -13,10 +18,11 @@ func build_visual_plan(chunk_coord: Vector3i, logic_grid: Array, catalog: RefCou
 		return _unavailable_mapper_plan(chunk_coord)
 
 	var visual_resources: Array = topology_mapper.visual_tiles_for_logic_grid(logic_grid)
-	return _build_plan_from_visual_resources(
+	var layer_plan := _build_layer_plan_from_visual_resources(
 		chunk_coord,
 		visual_resources,
 		catalog,
+		_solid_layer_spec(),
 		{
 			"formation_mode": "local_no_halo",
 			"formation_origin_cell": Vector2i.ZERO,
@@ -24,6 +30,7 @@ func build_visual_plan(chunk_coord: Vector3i, logic_grid: Array, catalog: RefCou
 			"owned_visual_size": _visual_grid_size_for_logic_grid(logic_grid),
 		}
 	)
+	return _chunk_plan_from_layers(chunk_coord, [layer_plan], catalog)
 
 
 func build_owned_visual_plan(
@@ -40,10 +47,11 @@ func build_owned_visual_plan(
 	var visual_resources: Array = topology_mapper.visual_tiles_for_logic_grid(formation_grid)
 	var crop_min := owned_visual_origin - formation_origin_cell
 	var crop_max_exclusive := crop_min + owned_visual_size
-	return _build_plan_from_visual_resources(
+	var layer_plan := _build_layer_plan_from_visual_resources(
 		chunk_coord,
 		visual_resources,
 		catalog,
+		_solid_layer_spec(),
 		{
 			"formation_mode": "owned_halo",
 			"formation_origin_cell": formation_origin_cell,
@@ -53,12 +61,16 @@ func build_owned_visual_plan(
 			"crop_max_exclusive": crop_max_exclusive,
 		}
 	)
+	return _chunk_plan_from_layers(chunk_coord, [layer_plan], catalog)
 
 
 func build_visual_plan_from_generated_chunk(
 	generated_chunk_data: Dictionary,
 	catalog: RefCounted = null
 ) -> Dictionary:
+	if generated_chunk_data.has("formation_layers"):
+		return _build_layered_visual_plan_from_generated_chunk(generated_chunk_data, catalog)
+
 	if generated_chunk_data.has("formation_grid"):
 		return build_owned_visual_plan(
 			generated_chunk_data["chunk_coord"],
@@ -86,17 +98,25 @@ func build_instantiation_plan(
 ) -> Dictionary:
 	var visual_tiles: Array = visual_plan.get("visual_tiles", visual_plan.get("tiles", []))
 	var multimesh_buckets: Dictionary = {}
+	var bucket_count := 0
 	for tile in visual_tiles:
 		var data: Dictionary = tile
+		var layer_id := String(data.get("layer_id", LAYER_SOLID))
 		var asset_key: String = data["asset_key"]
 		var base_key: String = catalog.base_key_for_asset_key(asset_key)
-		if not multimesh_buckets.has(base_key):
-			multimesh_buckets[base_key] = {
+		var material_variant := String(data.get("material_variant", layer_id))
+		if not multimesh_buckets.has(layer_id):
+			multimesh_buckets[layer_id] = {}
+		if not multimesh_buckets[layer_id].has(base_key):
+			multimesh_buckets[layer_id][base_key] = {
+				"layer_id": layer_id,
 				"base_key": base_key,
 				"source_asset_key": asset_key,
+				"material_variant": material_variant,
 				"instance_count": 0,
 			}
-		multimesh_buckets[base_key]["instance_count"] += 1
+			bucket_count += 1
+		multimesh_buckets[layer_id][base_key]["instance_count"] += 1
 
 	return {
 		"product_type": "ChunkInstantiationPlan",
@@ -107,13 +127,18 @@ func build_instantiation_plan(
 			"chunk_coord": chunk_coord,
 			"visual_backend": visual_backend,
 			"visual_tile_count": visual_tiles.size(),
+			"visual_layer_count": visual_plan.get("visual_layers", []).size(),
+			"missing_assets": visual_plan.get("missing_assets", []),
 		},
 		"diagnostics": {
 			"visual_tile_count": visual_tiles.size(),
-			"bucket_count": multimesh_buckets.size(),
+			"visual_layer_count": visual_plan.get("visual_layers", []).size(),
+			"bucket_count": bucket_count,
 			"visual_plan_valid": visual_plan.get("diagnostics", {}).get("is_valid", true),
+			"effective_rotation_count": _effective_rotation_count(visual_tiles),
 		},
 		"visual_tiles": visual_tiles,
+		"visual_layers": visual_plan.get("visual_layers", []),
 		"chunk_visual_plan": visual_plan,
 	}
 
@@ -158,6 +183,7 @@ func build_chunk_visual_from_instantiation_plan(
 	root.set_meta("cell_size_meters", cell_size_meters)
 	root.set_meta("visual_tiles_by_corner", _tiles_by_corner(instantiation_plan.get("visual_tiles", [])))
 	root.set_meta("visual_tile_count", int(instantiation_plan.get("visual_tiles", []).size()))
+	root.set_meta("visual_layer_count", int(instantiation_plan.get("visual_layers", []).size()))
 	root.set_meta("visual_backend", instantiation_plan["visual_backend"])
 	root.set_meta("chunk_instantiation_plan", instantiation_plan)
 	root.set_meta("last_dirty_corner_count", 0)
@@ -187,6 +213,7 @@ func build_chunk_visual_array_mesh(
 	root.set_meta("cell_size_meters", cell_size_meters)
 	root.set_meta("visual_tiles_by_corner", _tiles_by_corner(visual_plan.get("visual_tiles", visual_plan.get("tiles", []))))
 	root.set_meta("visual_tile_count", int(visual_plan.get("visual_tiles", visual_plan.get("tiles", [])).size()))
+	root.set_meta("visual_layer_count", int(visual_plan.get("visual_layers", []).size()))
 	root.set_meta("visual_backend", "array_mesh")
 	root.set_meta("last_dirty_corner_count", 0)
 
@@ -212,6 +239,7 @@ func destroy_or_pool(chunk_root: Node3D, pool: Array[Node3D], max_pool_size: int
 	_remove_meta_if_present(chunk_root, "cell_size_meters")
 	_remove_meta_if_present(chunk_root, "visual_tiles_by_corner")
 	_remove_meta_if_present(chunk_root, "visual_tile_count")
+	_remove_meta_if_present(chunk_root, "visual_layer_count")
 	_remove_meta_if_present(chunk_root, "visual_backend")
 	_remove_meta_if_present(chunk_root, "chunk_instantiation_plan")
 	_remove_meta_if_present(chunk_root, "last_dirty_corner_count")
@@ -232,9 +260,10 @@ func update_dirty_cell(chunk_root: Node3D, logic_grid: Array, cell_coord: Vector
 	var chunk_coord: Vector3i = chunk_root.get_meta("chunk_coord")
 	var visual_resources: Array = topology_mapper.visual_tiles_for_dirty_logic_cell(logic_grid, cell_coord)
 	var visual_tiles: Array[Dictionary] = []
+	var catalog: RefCounted = chunk_root.get_meta("catalog", null)
 	for resource in visual_resources:
 		var tile_resource: Object = resource as Object
-		visual_tiles.append(_resource_to_visual_tile_data(chunk_coord, tile_resource))
+		visual_tiles.append(_resource_to_visual_tile_data(chunk_coord, tile_resource, catalog, _solid_layer_spec()))
 
 	return update_visual_tiles(chunk_root, visual_tiles)
 
@@ -246,7 +275,7 @@ func update_visual_tiles(chunk_root: Node3D, visual_tile_data_array: Array) -> i
 	var tiles_by_corner: Dictionary = chunk_root.get_meta("visual_tiles_by_corner")
 	for tile in visual_tile_data_array:
 		var data: Dictionary = tile
-		var key := _corner_key(data["corner"])
+		var key := _tile_storage_key(data)
 		if data["is_empty"]:
 			tiles_by_corner.erase(key)
 		else:
@@ -258,11 +287,56 @@ func update_visual_tiles(chunk_root: Node3D, visual_tile_data_array: Array) -> i
 	return visual_tile_data_array.size()
 
 
+func _build_layered_visual_plan_from_generated_chunk(
+	generated_chunk_data: Dictionary,
+	catalog: RefCounted
+) -> Dictionary:
+	if topology_mapper == null:
+		return _unavailable_mapper_plan(generated_chunk_data.get("chunk_coord", Vector3i.ZERO))
+
+	var chunk_coord: Vector3i = generated_chunk_data["chunk_coord"]
+	var formation_layers: Dictionary = generated_chunk_data.get("formation_layers", {})
+	var layer_plans: Array[Dictionary] = []
+	for spec in _visual_layer_specs():
+		var layer_id := String(spec["layer_id"])
+		if not formation_layers.has(layer_id):
+			continue
+		var formation: Dictionary = formation_layers[layer_id]
+		var formation_grid: Array = formation.get("formation_grid", [])
+		var visual_resources: Array = topology_mapper.visual_tiles_for_logic_grid(formation_grid)
+		var formation_origin_cell: Vector2i = formation.get("formation_origin_cell", Vector2i(-1, -1))
+		var owned_visual_origin: Vector2i = formation.get("owned_visual_origin", Vector2i.ZERO)
+		var owned_visual_size: Vector2i = formation.get("owned_visual_size", Vector2i.ZERO)
+		var crop_min := owned_visual_origin - formation_origin_cell
+		var crop_max_exclusive := crop_min + owned_visual_size
+		layer_plans.append(_build_layer_plan_from_visual_resources(
+			chunk_coord,
+			visual_resources,
+			catalog,
+			spec,
+			{
+				"formation_mode": formation.get("formation_mode", "owned_halo"),
+				"formation_origin_cell": formation_origin_cell,
+				"owned_visual_origin": owned_visual_origin,
+				"owned_visual_size": owned_visual_size,
+				"crop_min": crop_min,
+				"crop_max_exclusive": crop_max_exclusive,
+			}
+		))
+
+	var plan := _chunk_plan_from_layers(chunk_coord, layer_plans, catalog)
+	plan["source_generated_product_type"] = generated_chunk_data.get("product_type", "")
+	plan["source_authority"] = generated_chunk_data.get("authority", "")
+	plan["generation_diagnostics"] = generated_chunk_data.get("diagnostics", {})
+	return plan
+
+
 func _unavailable_mapper_plan(chunk_coord: Vector3i) -> Dictionary:
 	push_error("GodotGridTopologyMapper is unavailable. Build and copy godot_grid.")
 	return {
 		"product_type": "ChunkVisualPlan",
 		"chunk_coord": chunk_coord,
+		"visual_layers": [],
 		"visual_tiles": [],
 		"tiles": [],
 		"asset_keys": [],
@@ -276,12 +350,14 @@ func _unavailable_mapper_plan(chunk_coord: Vector3i) -> Dictionary:
 	}
 
 
-func _build_plan_from_visual_resources(
+func _build_layer_plan_from_visual_resources(
 	chunk_coord: Vector3i,
 	visual_resources: Array,
 	catalog: RefCounted,
+	layer_spec: Dictionary,
 	options: Dictionary
 ) -> Dictionary:
+	var layer_id := String(layer_spec.get("layer_id", LAYER_SOLID))
 	var formation_mode: String = options.get("formation_mode", "local_no_halo")
 	var formation_origin_cell: Vector2i = options.get("formation_origin_cell", Vector2i.ZERO)
 	var owned_visual_origin: Vector2i = options.get("owned_visual_origin", Vector2i.ZERO)
@@ -306,7 +382,7 @@ func _build_plan_from_visual_resources(
 
 		cropped_corner_count += 1
 		var local_corner := formation_corner + formation_origin_cell
-		var data: Dictionary = _resource_to_visual_tile_data(chunk_coord, tile_resource)
+		var data: Dictionary = _resource_to_visual_tile_data(chunk_coord, tile_resource, catalog, layer_spec)
 		data["formation_mode"] = formation_mode
 		data["formation_corner"] = formation_corner
 		data["corner"] = local_corner
@@ -335,6 +411,8 @@ func _build_plan_from_visual_resources(
 	asset_keys.sort()
 	var diagnostics := {
 		"is_valid": emitted_out_of_bounds_count == 0,
+		"layer_id": layer_id,
+		"source_topology_layer": layer_spec.get("source_topology_layer", layer_id),
 		"formation_mode": formation_mode,
 		"formation_origin_cell": formation_origin_cell,
 		"owned_visual_origin": owned_visual_origin,
@@ -345,6 +423,7 @@ func _build_plan_from_visual_resources(
 		"skipped_empty_visual_tiles": skipped_empty_count,
 		"emitted_out_of_bounds_corners": emitted_out_of_bounds_count,
 		"asset_key_count": asset_keys.size(),
+		"diagonal_transform_diagnostics": _diagonal_transform_diagnostics(tiles),
 	}
 	var missing_assets: Array = []
 	if catalog != null:
@@ -354,14 +433,16 @@ func _build_plan_from_visual_resources(
 		diagnostics["catalog_validation"] = validation
 
 	return {
-		"product_type": "ChunkVisualPlan",
-		"chunk_coord": chunk_coord,
+		"layer_id": layer_id,
+		"source_topology_layer": layer_spec.get("source_topology_layer", layer_id),
+		"asset_namespace": layer_spec.get("asset_namespace", layer_id),
+		"material_variant": layer_spec.get("material_variant", layer_id),
+		"height_offset": float(layer_spec.get("height_offset", 0.0)),
 		"formation_mode": formation_mode,
 		"formation_origin_cell": formation_origin_cell,
 		"owned_visual_origin": owned_visual_origin,
 		"owned_visual_size": owned_visual_size,
 		"visual_tiles": tiles,
-		"tiles": tiles,
 		"asset_keys": asset_keys,
 		"missing_assets": missing_assets,
 		"bounds": bounds,
@@ -370,12 +451,90 @@ func _build_plan_from_visual_resources(
 	}
 
 
-func _resource_to_visual_tile_data(chunk_coord: Vector3i, tile_resource: Object) -> Dictionary:
+func _chunk_plan_from_layers(chunk_coord: Vector3i, visual_layers: Array, catalog: RefCounted) -> Dictionary:
+	var visual_tiles: Array[Dictionary] = []
+	var asset_keys_seen: Dictionary = {}
+	var missing_seen: Dictionary = {}
+	var layer_buckets: Dictionary = {}
+	var bounds := _empty_bounds()
+	var invalid_layer_count := 0
+	var duplicate_world_corners_by_layer := _duplicate_world_corners_by_layer(visual_layers)
+
+	for layer in visual_layers:
+		var layer_plan: Dictionary = layer
+		if not bool(layer_plan.get("diagnostics", {}).get("is_valid", false)):
+			invalid_layer_count += 1
+		layer_buckets[layer_plan["layer_id"]] = layer_plan.get("buckets", {})
+		for missing_asset in layer_plan.get("missing_assets", []):
+			missing_seen[String(missing_asset)] = true
+		for asset_key in layer_plan.get("asset_keys", []):
+			asset_keys_seen[String(asset_key)] = true
+		for tile in layer_plan.get("visual_tiles", []):
+			var data: Dictionary = tile
+			visual_tiles.append(data)
+			_expand_bounds(bounds, data["corner"])
+
+	var asset_keys := asset_keys_seen.keys()
+	asset_keys.sort()
+	var missing_assets := missing_seen.keys()
+	missing_assets.sort()
+	var diagnostics := {
+		"is_valid": (
+			invalid_layer_count == 0
+			and missing_assets.is_empty()
+			and duplicate_world_corners_by_layer.is_empty()
+		),
+		"formation_mode": "layered",
+		"visual_layer_count": visual_layers.size(),
+		"visual_tile_count": visual_tiles.size(),
+		"invalid_layer_count": invalid_layer_count,
+		"missing_asset_count": missing_assets.size(),
+		"duplicate_world_corners_by_layer": duplicate_world_corners_by_layer,
+		"diagonal_transform_diagnostics": _diagonal_transform_diagnostics(visual_tiles),
+	}
+	if catalog != null:
+		diagnostics["catalog"] = catalog.get_asset_report({"visual_tiles": visual_tiles})
+
+	return {
+		"product_type": "ChunkVisualPlan",
+		"chunk_coord": chunk_coord,
+		"formation_mode": "layered",
+		"visual_layers": visual_layers,
+		"visual_tiles": visual_tiles,
+		"tiles": visual_tiles,
+		"asset_keys": asset_keys,
+		"missing_assets": missing_assets,
+		"bounds": bounds,
+		"diagnostics": diagnostics,
+		"buckets": layer_buckets,
+	}
+
+
+func _resource_to_visual_tile_data(
+	chunk_coord: Vector3i,
+	tile_resource: Object,
+	catalog: RefCounted,
+	layer_spec: Dictionary
+) -> Dictionary:
+	var asset_key := String(tile_resource.asset_key)
+	var descriptor_rotation := int(tile_resource.rotation_degrees_cw)
+	var transform_info := _tile_transform_info(catalog, asset_key, descriptor_rotation)
 	return {
 		"chunk_coord": chunk_coord,
+		"layer_id": String(layer_spec.get("layer_id", LAYER_SOLID)),
+		"source_topology_layer": String(layer_spec.get("source_topology_layer", layer_spec.get("layer_id", LAYER_SOLID))),
+		"asset_namespace": String(layer_spec.get("asset_namespace", layer_spec.get("layer_id", LAYER_SOLID))),
+		"material_variant": String(layer_spec.get("material_variant", layer_spec.get("layer_id", LAYER_SOLID))),
+		"height_offset": float(layer_spec.get("height_offset", 0.0)),
 		"corner": tile_resource.corner,
-		"asset_key": String(tile_resource.asset_key),
-		"rotation_degrees_cw": int(tile_resource.rotation_degrees_cw),
+		"asset_key": asset_key,
+		"rotation_degrees_cw": descriptor_rotation,
+		"descriptor_rotation_degrees_cw": transform_info["descriptor_rotation_degrees_cw"],
+		"catalog_rotation_correction_degrees_cw": transform_info["catalog_rotation_correction_degrees_cw"],
+		"effective_rotation_degrees_cw": transform_info["effective_rotation_degrees_cw"],
+		"canonical_rotation_degrees_cw": transform_info["canonical_rotation_degrees_cw"],
+		"catalog_flip_x": transform_info["flip_x"],
+		"catalog_flip_z": transform_info["flip_z"],
 		"mask": int(tile_resource.mask),
 		"is_empty": bool(tile_resource.is_empty),
 	}
@@ -383,15 +542,22 @@ func _resource_to_visual_tile_data(chunk_coord: Vector3i, tile_resource: Object)
 
 func _tile_transform(tile_data: Dictionary, cell_size_meters: float) -> Transform3D:
 	var corner: Vector2i = tile_data["corner"]
-	var rotation_degrees_cw: int = tile_data["rotation_degrees_cw"]
+	var effective_rotation_degrees_cw: int = int(tile_data.get(
+		"effective_rotation_degrees_cw",
+		tile_data.get("rotation_degrees_cw", 0)
+	))
 	var origin := Vector3(
 		float(corner.x) * cell_size_meters,
-		0.0,
+		float(tile_data.get("height_offset", 0.0)),
 		float(corner.y) * cell_size_meters
 	)
-	# Grid rotations are clockwise in X/Y-down space; Godot yaw is opposite once Y maps to +Z.
-	var basis := Basis(Vector3.UP, deg_to_rad(float(-rotation_degrees_cw)))
-	basis = basis.scaled(Vector3(cell_size_meters, 1.0, cell_size_meters))
+	var basis := Basis(Vector3.UP, deg_to_rad(float(-effective_rotation_degrees_cw)))
+	var scale := Vector3(
+		-1.0 if bool(tile_data.get("catalog_flip_x", false)) else 1.0,
+		1.0,
+		-1.0 if bool(tile_data.get("catalog_flip_z", false)) else 1.0
+	)
+	basis = basis.scaled(scale * Vector3(cell_size_meters, 1.0, cell_size_meters))
 	return Transform3D(basis, origin)
 
 
@@ -401,8 +567,15 @@ func _tiles_by_corner(tiles: Array) -> Dictionary:
 		var data: Dictionary = tile
 		if data["is_empty"]:
 			continue
-		by_corner[_corner_key(data["corner"])] = data
+		by_corner[_tile_storage_key(data)] = data
 	return by_corner
+
+
+func _tile_storage_key(tile_data: Dictionary) -> String:
+	return "%s|%s" % [
+		String(tile_data.get("layer_id", LAYER_SOLID)),
+		_corner_key(tile_data["corner"]),
+	]
 
 
 func _empty_bounds() -> Dictionary:
@@ -470,27 +643,31 @@ func _rebuild_multimesh_buckets(root: Node3D) -> void:
 	var catalog: RefCounted = root.get_meta("catalog")
 	var cell_size_meters: float = root.get_meta("cell_size_meters")
 	var visual_tiles_by_corner: Dictionary = root.get_meta("visual_tiles_by_corner")
-	var transforms_by_base_key: Dictionary = {}
-	var asset_key_by_base_key: Dictionary = {}
+	var transforms_by_bucket: Dictionary = {}
+	var sample_tile_by_bucket: Dictionary = {}
 
-	for corner_key in visual_tiles_by_corner:
-		var data: Dictionary = visual_tiles_by_corner[corner_key]
+	for storage_key in visual_tiles_by_corner:
+		var data: Dictionary = visual_tiles_by_corner[storage_key]
 		var asset_key: String = data["asset_key"]
 		var base_key: String = catalog.base_key_for_asset_key(asset_key)
-		if not transforms_by_base_key.has(base_key):
-			transforms_by_base_key[base_key] = []
-			asset_key_by_base_key[base_key] = asset_key
-		transforms_by_base_key[base_key].append(_tile_transform(data, cell_size_meters))
+		var layer_id := String(data.get("layer_id", LAYER_SOLID))
+		var material_variant := String(data.get("material_variant", layer_id))
+		var bucket_key := "%s|%s|%s" % [layer_id, base_key, material_variant]
+		if not transforms_by_bucket.has(bucket_key):
+			transforms_by_bucket[bucket_key] = []
+			sample_tile_by_bucket[bucket_key] = data
+		transforms_by_bucket[bucket_key].append(_tile_transform(data, cell_size_meters))
 
-	var base_keys: Array = transforms_by_base_key.keys()
-	base_keys.sort()
-	for base_key in base_keys:
-		var source_asset_key: String = asset_key_by_base_key[base_key]
+	var bucket_keys: Array = transforms_by_bucket.keys()
+	bucket_keys.sort()
+	for bucket_key in bucket_keys:
+		var sample_tile: Dictionary = sample_tile_by_bucket[bucket_key]
+		var source_asset_key: String = sample_tile["asset_key"]
 		var mesh: Mesh = catalog.get_mesh(source_asset_key)
 		if mesh == null:
 			continue
 
-		var transforms: Array = transforms_by_base_key[base_key]
+		var transforms: Array = transforms_by_bucket[bucket_key]
 		var multimesh := MultiMesh.new()
 		multimesh.transform_format = MultiMesh.TRANSFORM_3D
 		multimesh.mesh = mesh
@@ -499,9 +676,12 @@ func _rebuild_multimesh_buckets(root: Node3D) -> void:
 			multimesh.set_instance_transform(index, transforms[index])
 
 		var instance := MultiMeshInstance3D.new()
-		instance.name = "%s_bucket" % base_key
+		instance.name = "%s_bucket" % bucket_key.replace("|", "_")
 		instance.multimesh = multimesh
-		instance.material_override = catalog.get_material(source_asset_key)
+		if catalog.has_method("get_material_for_tile"):
+			instance.material_override = catalog.get_material_for_tile(sample_tile)
+		else:
+			instance.material_override = catalog.get_material(source_asset_key)
 		root.add_child(instance)
 
 
@@ -555,6 +735,99 @@ func _append_tile_quad(
 	indices.append(index_start)
 	indices.append(index_start + 2)
 	indices.append(index_start + 3)
+
+
+func _visual_layer_specs() -> Array[Dictionary]:
+	return [
+		{
+			"layer_id": LAYER_GROUND,
+			"source_topology_layer": LAYER_GROUND,
+			"asset_namespace": "ground",
+			"material_variant": "ground",
+			"height_offset": 0.0,
+		},
+		{
+			"layer_id": LAYER_WATER,
+			"source_topology_layer": LAYER_WATER,
+			"asset_namespace": "water",
+			"material_variant": "water",
+			"height_offset": -0.04,
+		},
+		_solid_layer_spec(),
+	]
+
+
+func _solid_layer_spec() -> Dictionary:
+	return {
+		"layer_id": LAYER_SOLID,
+		"source_topology_layer": LAYER_SOLID,
+		"asset_namespace": "solid",
+		"material_variant": "solid",
+		"height_offset": 0.14,
+	}
+
+
+func _tile_transform_info(catalog: RefCounted, asset_key: String, descriptor_rotation: int) -> Dictionary:
+	if catalog != null and catalog.has_method("describe_tile_transform"):
+		return catalog.describe_tile_transform(asset_key, descriptor_rotation)
+	return {
+		"asset_key": asset_key,
+		"base_key": asset_key,
+		"descriptor_rotation_degrees_cw": _positive_degrees(descriptor_rotation),
+		"catalog_rotation_correction_degrees_cw": 0,
+		"effective_rotation_degrees_cw": _positive_degrees(descriptor_rotation),
+		"canonical_rotation_degrees_cw": 0,
+		"flip_x": false,
+		"flip_z": false,
+	}
+
+
+func _diagonal_transform_diagnostics(tiles: Array) -> Array:
+	var diagnostics: Array[Dictionary] = []
+	for tile in tiles:
+		var data: Dictionary = tile
+		if not String(data.get("asset_key", "")).begins_with("diagonal_"):
+			continue
+		diagnostics.append({
+			"layer_id": data.get("layer_id", LAYER_SOLID),
+			"mask": data.get("mask", 0),
+			"asset_key": data.get("asset_key", ""),
+			"descriptor_rotation_degrees_cw": data.get("descriptor_rotation_degrees_cw", 0),
+			"catalog_rotation_correction_degrees_cw": data.get("catalog_rotation_correction_degrees_cw", 0),
+			"effective_rotation_degrees_cw": data.get("effective_rotation_degrees_cw", 0),
+		})
+	return diagnostics
+
+
+func _duplicate_world_corners_by_layer(visual_layers: Array) -> Array:
+	var duplicates: Array[String] = []
+	for layer in visual_layers:
+		var layer_plan: Dictionary = layer
+		var owner: Dictionary = {}
+		for tile in layer_plan.get("visual_tiles", []):
+			var data: Dictionary = tile
+			var world_corner: Vector2i = data.get("world_corner", Vector2i.ZERO)
+			var key := "%s|%s:%s" % [layer_plan["layer_id"], world_corner.x, world_corner.y]
+			if owner.has(key):
+				duplicates.append(key)
+			else:
+				owner[key] = true
+	duplicates.sort()
+	return duplicates
+
+
+func _effective_rotation_count(visual_tiles: Array) -> int:
+	var count := 0
+	for tile in visual_tiles:
+		var data: Dictionary = tile
+		if data.has("effective_rotation_degrees_cw"):
+			count += 1
+	return count
+
+
+func _positive_degrees(degrees: int) -> int:
+	var value := degrees % 360
+	return value + 360 if value < 0 else value
 
 
 func _corner_key(corner: Vector2i) -> String:

@@ -8,6 +8,7 @@ var material_by_key: Dictionary = {}
 var selected_variant: String = "default"
 var missing_asset_keys: Dictionary = {}
 var missing_material_keys: Dictionary = {}
+var transform_contract_by_base_key: Dictionary = {}
 var catalog_source: String = "fallback_boxes"
 var loaded_tilekit_path: String = ""
 var loaded_base_meshes: Array[String] = []
@@ -17,6 +18,7 @@ var tilekit_adapter_diagnostics: Dictionary = {}
 
 func _init() -> void:
 	register_default_meshes()
+	register_default_transform_contracts()
 	load_authored_tilekit()
 
 
@@ -54,6 +56,17 @@ func get_material(asset_key: String) -> Material:
 		_record_missing_material_key(asset_key)
 		return material_by_key.get("debug")
 	return material_by_key.get(material_key)
+
+
+func get_material_for_tile(tile_data: Dictionary) -> Material:
+	var asset_key := String(tile_data.get("asset_key", "debug"))
+	var material_variant := String(tile_data.get("material_variant", ""))
+	if material_variant != "":
+		var base_key := base_key_for_asset_key(asset_key)
+		var variant_key := _variant_catalog_key(base_key, material_variant)
+		if material_by_key.has(variant_key):
+			return material_by_key[variant_key]
+	return get_material(asset_key)
 
 
 func set_selected_variant(variant: String) -> void:
@@ -135,6 +148,7 @@ func get_diagnostics() -> Dictionary:
 		"missing_asset_keys": get_missing_asset_keys(),
 		"missing_material_key_count": missing_material_key_count(),
 		"missing_material_keys": get_missing_material_keys(),
+		"transform_contracts": transform_contract_by_base_key,
 	}
 
 
@@ -167,6 +181,9 @@ func load_authored_tilekit(manifest_path: String = DEFAULT_TILEKIT_MANIFEST_PATH
 		var material: Material = entry.get("material", null)
 		if material != null:
 			register_material(base_key, material)
+		var transform_contract: Dictionary = entry.get("transform_contract", {})
+		if not transform_contract.is_empty():
+			transform_contract_by_base_key[base_key] = _normalized_transform_contract(transform_contract)
 		loaded_meshes.append(base_key)
 
 	loaded_meshes.sort()
@@ -192,6 +209,34 @@ func base_key_for_asset_key(asset_key: String) -> String:
 	return asset_key
 
 
+func transform_contract_for_asset_key(asset_key: String) -> Dictionary:
+	var base_key := base_key_for_asset_key(asset_key)
+	if transform_contract_by_base_key.has(base_key):
+		return transform_contract_by_base_key[base_key]
+	return _default_transform_contract()
+
+
+func effective_rotation_degrees_cw(asset_key: String, descriptor_rotation_degrees_cw: int) -> int:
+	var contract := transform_contract_for_asset_key(asset_key)
+	return _positive_degrees(
+		descriptor_rotation_degrees_cw + int(contract.get("rotation_correction_degrees_cw", 0))
+	)
+
+
+func describe_tile_transform(asset_key: String, descriptor_rotation_degrees_cw: int) -> Dictionary:
+	var contract := transform_contract_for_asset_key(asset_key)
+	return {
+		"asset_key": asset_key,
+		"base_key": base_key_for_asset_key(asset_key),
+		"descriptor_rotation_degrees_cw": _positive_degrees(descriptor_rotation_degrees_cw),
+		"catalog_rotation_correction_degrees_cw": int(contract.get("rotation_correction_degrees_cw", 0)),
+		"effective_rotation_degrees_cw": effective_rotation_degrees_cw(asset_key, descriptor_rotation_degrees_cw),
+		"canonical_rotation_degrees_cw": int(contract.get("canonical_rotation_degrees_cw", 0)),
+		"flip_x": bool(contract.get("flip_x", false)),
+		"flip_z": bool(contract.get("flip_z", false)),
+	}
+
+
 func register_default_meshes() -> void:
 	_register_box_mesh("corner", Vector3(0.5, 0.7, 0.5), Color(0.18, 0.62, 0.95, 1.0))
 	_register_box_mesh("edge", Vector3(1.0, 0.7, 0.42), Color(0.14, 0.76, 0.68, 1.0))
@@ -199,6 +244,18 @@ func register_default_meshes() -> void:
 	_register_box_mesh("diagonal", Vector3(0.9, 0.7, 0.9), Color(0.95, 0.62, 0.23, 1.0))
 	_register_box_mesh("full", Vector3(1.0, 0.7, 1.0), Color(0.9, 0.92, 0.95, 1.0))
 	_register_box_mesh("debug", Vector3(1.0, 0.18, 1.0), Color(1.0, 0.25, 0.35, 1.0))
+	_register_layer_material_variants()
+
+
+func register_default_transform_contracts() -> void:
+	for base_key in ["corner", "edge", "t", "full", "debug"]:
+		transform_contract_by_base_key[base_key] = _default_transform_contract()
+	transform_contract_by_base_key["diagonal"] = _normalized_transform_contract({
+		"canonical_rotation_degrees_cw": 0,
+		"rotation_correction_degrees_cw": 90,
+		"flip_x": false,
+		"flip_z": false,
+	})
 
 
 func _register_box_mesh(asset_key: String, size: Vector3, color: Color) -> void:
@@ -213,6 +270,14 @@ func _make_material(color: Color) -> StandardMaterial3D:
 	material.albedo_color = color
 	material.roughness = 0.8
 	return material
+
+
+func _register_layer_material_variants() -> void:
+	for base_key in ["corner", "edge", "t", "diagonal", "full", "debug"]:
+		register_material_variant(base_key, "ground", _make_material(Color(0.35, 0.62, 0.28, 1.0)))
+		register_material_variant(base_key, "water", _make_material(Color(0.12, 0.42, 0.9, 0.82)))
+		register_material_variant(base_key, "solid", _make_material(Color(0.52, 0.48, 0.42, 1.0)))
+		register_material_variant(base_key, "cliff", _make_material(Color(0.46, 0.4, 0.34, 1.0)))
 
 
 func _resolve_mesh_key(asset_key: String) -> String:
@@ -256,3 +321,26 @@ func _make_tilekit_adapter() -> RefCounted:
 
 func _record_tilekit_error(message: String) -> void:
 	tilekit_load_errors.append(message)
+
+
+func _default_transform_contract() -> Dictionary:
+	return {
+		"canonical_rotation_degrees_cw": 0,
+		"rotation_correction_degrees_cw": 0,
+		"flip_x": false,
+		"flip_z": false,
+	}
+
+
+func _normalized_transform_contract(contract: Dictionary) -> Dictionary:
+	return {
+		"canonical_rotation_degrees_cw": _positive_degrees(int(contract.get("canonical_rotation_degrees_cw", 0))),
+		"rotation_correction_degrees_cw": _positive_degrees(int(contract.get("rotation_correction_degrees_cw", 0))),
+		"flip_x": bool(contract.get("flip_x", false)),
+		"flip_z": bool(contract.get("flip_z", false)),
+	}
+
+
+func _positive_degrees(degrees: int) -> int:
+	var value := degrees % 360
+	return value + 360 if value < 0 else value

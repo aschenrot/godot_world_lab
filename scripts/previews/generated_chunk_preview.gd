@@ -27,8 +27,9 @@ func build_generated_chunk_preview(
 		var Catalog := load("res://scripts/tile_mesh_catalog.gd")
 		catalog = Catalog.new()
 
-	var logic_grid: Array = provider.generate_chunk_logic_grid(chunk_coord)
-	generated_chunk_data = provider.make_generated_chunk_data(chunk_coord, logic_grid)
+	var generation_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
+	var logic_grid: Array = generation_result["logic_grid"]
+	generated_chunk_data = provider.make_generated_chunk_data(chunk_coord, logic_grid, generation_result)
 	chunk_visual_plan = builder.build_visual_plan_from_generated_chunk(generated_chunk_data, catalog)
 	chunk_instantiation_plan = builder.build_instantiation_plan(
 		chunk_coord,
@@ -65,10 +66,36 @@ func get_preview_diagnostics() -> Dictionary:
 func _generated_chunk_summary(data: Dictionary) -> Dictionary:
 	return {
 		"product_type": data.get("product_type", ""),
+		"authority": data.get("authority", ""),
 		"chunk_coord": data.get("chunk_coord", Vector3i.ZERO),
 		"generator_version": data.get("generator_version", 0),
 		"generation_settings_hash": data.get("generation_settings_hash", 0),
 		"row_count": data.get("logic_grid", []).size(),
+		"logic_grid_alias": data.get("diagnostics", {}).get("logic_grid_alias", ""),
+		"terrain_diagnostics": data.get("diagnostics", {}),
+		"topology_layers": _topology_layer_summary(data.get("topology_layers", {})),
+	}
+
+
+func _topology_layer_summary(topology_layers: Dictionary) -> Dictionary:
+	var summary: Dictionary = {}
+	for layer_id in topology_layers:
+		summary[layer_id] = _layer_grid_report(topology_layers[layer_id])
+	return summary
+
+
+func _layer_grid_report(grid: Array) -> Dictionary:
+	var occupied := 0
+	var total := 0
+	for row in grid:
+		for cell in row:
+			total += 1
+			if int(cell) == 1:
+				occupied += 1
+	return {
+		"occupied": occupied,
+		"total": total,
+		"occupied_percent": int(round(float(occupied) * 100.0 / float(maxi(total, 1)))),
 	}
 
 

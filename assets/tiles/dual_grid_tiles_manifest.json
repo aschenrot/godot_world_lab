@@ -21,5 +21,43 @@
   "generated_normalized_meshes": {
     "debug": "Generated during normalization as the lab fallback mesh when the authored kit omits a debug mesh."
   },
+  "mesh_transform_contracts": {
+    "corner": {
+      "canonical_rotation_degrees_cw": 0,
+      "rotation_correction_degrees_cw": 0,
+      "flip_x": false,
+      "flip_z": false
+    },
+    "edge": {
+      "canonical_rotation_degrees_cw": 0,
+      "rotation_correction_degrees_cw": 0,
+      "flip_x": false,
+      "flip_z": false
+    },
+    "t": {
+      "canonical_rotation_degrees_cw": 0,
+      "rotation_correction_degrees_cw": 0,
+      "flip_x": false,
+      "flip_z": false
+    },
+    "diagonal": {
+      "canonical_rotation_degrees_cw": 0,
+      "rotation_correction_degrees_cw": 90,
+      "flip_x": false,
+      "flip_z": false
+    },
+    "full": {
+      "canonical_rotation_degrees_cw": 0,
+      "rotation_correction_degrees_cw": 0,
+      "flip_x": false,
+      "flip_z": false
+    },
+    "debug": {
+      "canonical_rotation_degrees_cw": 0,
+      "rotation_correction_degrees_cw": 0,
+      "flip_x": false,
+      "flip_z": false
+    }
+  },
   "authored_rotated_variants": false
 }

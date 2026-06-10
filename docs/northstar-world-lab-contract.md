@@ -29,8 +29,9 @@ Normalized reality is imported and validated input ready for use by lab systems.
 
 - Imported GLB resources derived from the Blender tile kit.
 - Validated `TileMeshCatalog` records for descriptor asset keys.
-- Normalized generator config represented by seed, generator version, wall
-  threshold, chunk size, debug-border mode, and generation settings hash.
+- Normalized generator config represented by seed, generator version, chunk
+  size, terrain/liquid/solid noise settings, target walkability, debug-border
+  mode, liquid movement policy, and generation settings hash.
 
 ## Formed Reality
 
@@ -41,9 +42,15 @@ created.
   - `chunk_coord`
   - `generator_version`
   - `generation_settings_hash`
-  - `logic_grid`
+  - `terrain_cells` using the lab-local `LabTerrainCell` contract
+  - `topology_layers` keyed by binary views such as `ground`, `water`, `solid`,
+    and future `cliff`
+  - `formation_layers` with owned-halo formation per topology layer
+  - `logic_grid` as a temporary compatibility alias for
+    `topology_layers["solid"]`
 - `ChunkVisualPlan`
   - `chunk_coord`
+  - `visual_layers`
   - `visual_tiles`
   - `asset_keys`
   - `missing_assets`
@@ -52,11 +59,14 @@ created.
 - `ChunkInstantiationPlan`
   - `chunk_coord`
   - `visual_backend`
-  - `multimesh_buckets`
+  - `multimesh_buckets` grouped by visual layer and base mesh key
   - `root_metadata`
   - `diagnostics`
 
 The lab must not jump directly from generated cells to Godot scene nodes.
+`LabTerrainCell` has `authority = local_lab_only`; it is not a Runenwerk world
+model, save format, SDF payload, product family, or reusable generation
+contract.
 
 ## Instantiated Reality
 
@@ -84,6 +94,7 @@ and provider work; it does not own lifecycle truth.
 Expressed reality is what the lab renders or exposes visually.
 
 - Rendered `MultiMeshInstance3D` chunks.
+- Layered ground, water/depth, and solid/minable visual buckets.
 - Debug chunk boxes.
 - Fallback debug meshes for missing catalog entries.
 
@@ -95,6 +106,8 @@ Observed reality is diagnostic and preview data.
 - Streaming diagnostics.
 - Missing asset reports.
 - Generated chunk preview data.
+- Layered terrain correctness reports, including descriptor rotation, catalog
+  transform correction, and final effective Godot rotation.
 
 ## Repository Ownership
 
@@ -118,4 +131,3 @@ for future platform meaning, not a dependency or implementation target here.
 
 `GridMap` and `MeshLibrary` may be evaluated later as Godot editor/import
 artifacts. They must not become runtime truth.
-

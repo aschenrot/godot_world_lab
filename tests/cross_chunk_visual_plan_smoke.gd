@@ -18,6 +18,7 @@ class FakeStreamingNode:
 			not generated_chunk_data.is_empty()
 			and generated_chunk_data.has("logic_grid")
 			and generated_chunk_data.has("formation_grid")
+			and generated_chunk_data.has("formation_layers")
 		)
 
 
@@ -57,6 +58,9 @@ func _initialize() -> void:
 		generated_chunk_data["formation_grid"][0].size() == provider.chunk_size_cells + 1,
 		"formation grid has halo column"
 	)
+	_assert(generated_chunk_data["formation_layers"].has("ground"), "ground layer has halo")
+	_assert(generated_chunk_data["formation_layers"].has("solid"), "solid layer has halo")
+	_assert(generated_chunk_data["formation_layers"].has("water"), "water layer has halo")
 
 	var positive_plans: Dictionary = _assert_chunk_set(
 		provider,
@@ -134,21 +138,19 @@ func _assert_chunk_set(
 	var size: int = provider.chunk_size_cells
 
 	for chunk_coord in chunk_coords:
-		var logic_grid: Array = provider.generate_chunk_logic_grid(chunk_coord)
-		var generated_chunk_data: Dictionary = provider.make_generated_chunk_data(chunk_coord, logic_grid)
+		var generation_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
+		var logic_grid: Array = generation_result["logic_grid"]
+		var generated_chunk_data: Dictionary = provider.make_generated_chunk_data(chunk_coord, logic_grid, generation_result)
 		var visual_plan: Dictionary = builder.build_visual_plan_from_generated_chunk(
 			generated_chunk_data,
 			catalog
 		)
 		plans[chunk_coord] = visual_plan
 		_assert(
-			visual_plan.get("formation_mode", "") == "owned_halo",
-			"%s plan uses owned halo formation" % label
+			visual_plan.get("formation_mode", "") == "layered",
+			"%s plan uses layered formation" % label
 		)
-		_assert(
-			visual_plan["diagnostics"]["cropped_visual_corners"] == size * size,
-			"%s plan crops exactly owned visual corners" % label
-		)
+		_assert_layer_diagnostics(visual_plan, size, label)
 		_assert(
 			bool(visual_plan["diagnostics"]["is_valid"]),
 			"%s plan is valid" % label
@@ -172,10 +174,10 @@ func _assert_chunk_set(
 				data["world_corner"] == expected_world_corner,
 				"%s tile world corner matches owner rule" % label
 			)
-			var world_key := _world_corner_key(data["world_corner"])
+			var world_key := _world_corner_key(data["world_corner"], data.get("layer_id", "solid"))
 			_assert(
 				not world_corner_owner.has(world_key),
-				"%s world visual corner is owned once: %s" % [label, world_key]
+				"%s world visual corner is owned once per layer: %s" % [label, world_key]
 			)
 			world_corner_owner[world_key] = _chunk_key(chunk_coord)
 
@@ -195,16 +197,29 @@ func _assert_border_mask_uses_neighbor(visual_plan: Dictionary, local_corner: Ve
 	)
 
 
+func _assert_layer_diagnostics(visual_plan: Dictionary, size: int, label: String) -> void:
+	for layer in visual_plan.get("visual_layers", []):
+		var layer_plan: Dictionary = layer
+		_assert(
+			layer_plan.get("formation_mode", "") == "owned_halo",
+			"%s layer uses owned halo formation" % label
+		)
+		_assert(
+			int(layer_plan["diagnostics"]["cropped_visual_corners"]) == size * size,
+			"%s layer crops exactly owned visual corners" % label
+		)
+
+
 func _tile_at_corner(visual_plan: Dictionary, corner: Vector2i) -> Dictionary:
 	for tile in visual_plan["visual_tiles"]:
 		var data: Dictionary = tile
-		if data["corner"] == corner:
+		if data["corner"] == corner and data.get("layer_id", "solid") == "solid":
 			return data
 	return {}
 
 
-func _world_corner_key(world_corner: Vector2i) -> String:
-	return "%s:%s" % [world_corner.x, world_corner.y]
+func _world_corner_key(world_corner: Vector2i, layer_id: String) -> String:
+	return "%s|%s:%s" % [layer_id, world_corner.x, world_corner.y]
 
 
 func _chunk_key(chunk_coord: Vector3i) -> String:

@@ -38,6 +38,16 @@ func validate_manifest(manifest_path: String = DEFAULT_TILEKIT_MANIFEST_PATH) ->
 		if _is_authored_rotation_variant(base_key):
 			errors.append("base_meshes contains authored rotated variant: %s" % base_key)
 
+	var transform_contracts: Dictionary = manifest.get("mesh_transform_contracts", {})
+	for base_mesh in base_meshes:
+		var base_key := String(base_mesh)
+		if not transform_contracts.has(base_key):
+			errors.append("mesh_transform_contracts lacks base mesh: %s" % base_key)
+			continue
+		var contract: Dictionary = transform_contracts[base_key]
+		if not contract.has("rotation_correction_degrees_cw"):
+			errors.append("mesh transform contract lacks rotation correction: %s" % base_key)
+
 	if bool(manifest.get("authored_rotated_variants", false)):
 		errors.append("authored_rotated_variants must stay false")
 
@@ -75,6 +85,7 @@ func build_catalog_entries(manifest_path: String = DEFAULT_TILEKIT_MANIFEST_PATH
 					"mesh": mesh_instance.mesh.duplicate(true),
 					"material": material.duplicate(true) if material != null else null,
 					"source_path": normalized_glb,
+					"transform_contract": manifest.get("mesh_transform_contracts", {}).get(base_key, {}),
 				})
 				loaded_base_meshes.append(base_key)
 			root.free()
@@ -96,6 +107,7 @@ func build_catalog_entries(manifest_path: String = DEFAULT_TILEKIT_MANIFEST_PATH
 			"source_blend": manifest.get("source_blend", ""),
 			"headless_source_gltf": manifest.get("headless_source_gltf", ""),
 			"authored_rotated_variants": manifest.get("authored_rotated_variants", false),
+			"mesh_transform_contracts": manifest.get("mesh_transform_contracts", {}),
 			"loaded_base_meshes": loaded_base_meshes,
 			"catalog_entry_count": entries.size(),
 			"errors": errors,
@@ -150,6 +162,7 @@ func _manifest_report(manifest_path: String, manifest: Dictionary, errors: Array
 			"normalized_glb": manifest.get("normalized_glb", ""),
 			"base_meshes": manifest.get("base_meshes", []),
 			"authored_rotated_variants": manifest.get("authored_rotated_variants", false),
+			"mesh_transform_contracts": manifest.get("mesh_transform_contracts", {}),
 			"errors": errors,
 		},
 	}

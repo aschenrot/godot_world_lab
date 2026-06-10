@@ -6,12 +6,12 @@ This records M12 collision findings before any extraction decision.
 
 The lab has a stable collision prototype boundary:
 
-- Collision consumes `ChunkVisualPlan.visual_tiles`.
+- Collision consumes explicit topology layers from `GeneratedChunkData`.
 - Collision is chunk-owned and unloads with the chunk root.
 - The current backend creates one `StaticBody3D` per chunk and one box
-  `CollisionShape3D` per non-empty visual tile.
+  `CollisionShape3D` per blocking policy cell.
 - Collision diagnostics report whether a chunk has collision and how many shapes
-  were created.
+  were created, plus solid and liquid policy counts.
 
 This proves that collision can be derived from formed products without changing
 topology or streaming truth.
@@ -24,10 +24,12 @@ These parts remain Godot World Lab details:
 - Collision height.
 - Shape naming.
 - Physics layer/mask defaults.
-- Whether non-empty visual tiles are the right collision source for gameplay.
+- Liquid/depth movement policy defaults.
 
-The prototype is intentionally conservative. It proves lifecycle and ownership,
-not final gameplay physics.
+Ground visual tiles do not imply blockers. Solid/minable cells block movement,
+and liquid/depth cells block only when the lab policy says they do. The
+prototype is intentionally conservative. It proves lifecycle and ownership, not
+final gameplay physics.
 
 ## Extraction Blockers
 
@@ -37,8 +39,8 @@ The blockers are:
 
 - `grid` should not know Godot physics resources.
 - `spatial_streaming` should not know collision or renderer realization.
-- The collision backend has not been validated against player movement,
-  navigation, placed objects, or Runenwerk gameplay semantics.
+- The collision backend has not been validated against navigation, placed
+  objects, mining, liquid traversal rules, or Runenwerk gameplay semantics.
 - There is no neutral collision shape descriptor contract yet.
 
 ## Future Contract Candidate
@@ -46,7 +48,7 @@ The blockers are:
 A future neutral contract could be:
 
 ```text
-visual/topology descriptor -> chunk-local collision primitive descriptors
+terrain topology layers + collision policy -> chunk-local collision primitive descriptors
 ```
 
 That contract would still not own Godot `StaticBody3D` nodes. The Godot adapter

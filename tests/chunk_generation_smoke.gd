@@ -16,9 +16,13 @@ func _initialize() -> void:
 	var same_a: Array = provider.generate_chunk_logic_grid(coord)
 	var same_b: Array = provider.generate_chunk_logic_grid(coord)
 	var different: Array = provider.generate_chunk_logic_grid(Vector3i(5, 0, -2))
+	var layered_result: Dictionary = provider.generate_chunk_generation_result(coord)
 	var settings_hash_a: int = provider.generation_settings_hash()
 
 	_assert(_grid_signature(same_a) == _grid_signature(same_b), "same coordinate is deterministic")
+	_assert(layered_result.has("terrain_cells"), "generation emits terrain cells")
+	_assert(layered_result.has("topology_layers"), "generation emits topology layers")
+	_assert(_grid_signature(layered_result["logic_grid"]) == _grid_signature(layered_result["topology_layers"]["solid"]), "logic grid aliases solid layer")
 	_assert(_grid_signature(same_a) != _grid_signature(different), "different coordinate changes layout")
 	_assert(same_a.size() == 16, "grid has expected row count")
 	_assert(same_a[0].size() == 16, "grid has expected column count")

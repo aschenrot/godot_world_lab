@@ -18,11 +18,18 @@ func _initialize() -> void:
 	var result_a: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
 	var result_b: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
 	_assert(_grid_signature(result_a["logic_grid"]) == _grid_signature(result_b["logic_grid"]), "quality generator is deterministic")
+	_assert(result_a.has("terrain_cells"), "quality generator emits terrain cells")
+	_assert(result_a.has("topology_layers"), "quality generator emits topology layers")
+	_assert(_grid_signature(result_a["logic_grid"]) == _grid_signature(result_a["topology_layers"]["solid"]), "logic grid aliases solid topology layer")
+	_assert(
+		int(result_a["diagnostics"]["dominant_walkable_region"]) > 0,
+		"quality generator reports dominant walkable region"
+	)
 	_assert(result_a["debug_markers"].size() > 0, "debug markers are emitted")
 	_assert(_has_marker_type(result_a["debug_markers"], "room"), "room markers are emitted")
 	_assert(_has_marker_type(result_a["debug_markers"], "path"), "path markers are emitted")
 
-	var generated_data: Dictionary = provider.make_generated_chunk_data(chunk_coord, result_a["logic_grid"])
+	var generated_data: Dictionary = provider.make_generated_chunk_data(chunk_coord, result_a["logic_grid"], result_a)
 	_assert(generated_data.has("generation_settings"), "generated data carries generation settings")
 	_assert(generated_data["debug_markers"].size() > 0, "generated data carries debug markers")
 
@@ -52,6 +59,27 @@ func _initialize() -> void:
 	var right: Array = provider.generate_chunk_logic_grid(Vector3i(1, 0, 0))
 	_assert(not _edge_is_wall(left, "right"), "left edge remains seamless without forced border")
 	_assert(not _edge_is_wall(right, "left"), "right edge remains seamless without forced border")
+
+	provider.wall_threshold_percent = 16
+	provider.liquid_threshold_percent = 35
+	provider.room_attempts = 3
+	provider.smoothing_passes = 1
+	var sample_report: Dictionary = _multi_chunk_walkability_report(provider, [
+		Vector3i(-1, 0, -1),
+		Vector3i(0, 0, -1),
+		Vector3i(-1, 0, 0),
+		Vector3i(0, 0, 0),
+		Vector3i(1, 0, 0),
+		Vector3i(0, 0, 1),
+	])
+	_assert(
+		int(sample_report["open_percent"]) >= 70 and int(sample_report["open_percent"]) <= 80,
+			"default multi-chunk sample is 70-80 percent walkable: %s" % str(sample_report)
+	)
+	_assert(
+		int(sample_report["dominant_walkable_percent_min"]) >= 65,
+		"connectivity repair leaves dominant reachable regions: %s" % str(sample_report)
+	)
 
 	provider.free()
 	quit(1 if failed else 0)
@@ -88,6 +116,22 @@ func _edge_is_wall(grid: Array, edge: String) -> bool:
 				return false
 		return true
 	return false
+
+
+func _multi_chunk_walkability_report(provider: Node, chunk_coords: Array) -> Dictionary:
+	var total := 0
+	var walkable := 0
+	var dominant_min := 100
+	for chunk_coord in chunk_coords:
+		var result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
+		var diagnostics: Dictionary = result["diagnostics"]
+		total += int(diagnostics["cell_count"])
+		walkable += int(diagnostics["walkable_cell_count"])
+		dominant_min = mini(dominant_min, int(diagnostics["dominant_walkable_percent"]))
+	return {
+		"open_percent": int(round(float(walkable) * 100.0 / float(maxi(total, 1)))),
+		"dominant_walkable_percent_min": dominant_min,
+	}
 
 
 func _assert(condition: bool, message: String) -> void:
