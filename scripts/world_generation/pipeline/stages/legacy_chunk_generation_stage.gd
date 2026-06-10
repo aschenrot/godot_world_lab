@@ -43,7 +43,11 @@ func _run(
 	if not provider.has_method(LEGACY_METHOD):
 		return GenerationStageResult.failed(stage_id, stage_category, "missing_legacy_generation_method")
 
-	var generation_result: Dictionary = provider.call(LEGACY_METHOD, context.chunk_coord)
+	var called_result: Variant = provider.call(LEGACY_METHOD, context.chunk_coord)
+	if typeof(called_result) != TYPE_DICTIONARY:
+		return GenerationStageResult.failed(stage_id, stage_category, "legacy_generation_result_not_dictionary")
+
+	var generation_result: Dictionary = called_result
 	if generation_result.is_empty():
 		return GenerationStageResult.failed(stage_id, stage_category, "empty_legacy_generation_result")
 
