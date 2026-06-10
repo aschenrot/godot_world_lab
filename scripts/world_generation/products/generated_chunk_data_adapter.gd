@@ -67,6 +67,7 @@ static func generated_chunk_data_from_world_chunk(
 	var topology_layers: Dictionary = generation_result.get("topology_layers", {})
 	var logic_grid: Array = generation_result.get("logic_grid", [])
 	var diagnostics: Dictionary = generation_result.get("diagnostics", {})
+	var solid_formation: Dictionary = formation_layers.get(LAYER_SOLID, {})
 	return {
 		"product_type": "GeneratedChunkData",
 		"authority": "local_lab_only",
@@ -77,6 +78,12 @@ static func generated_chunk_data_from_world_chunk(
 		"topology_layers": topology_layers,
 		"formation_layers": formation_layers.duplicate(true),
 		"logic_grid": logic_grid,
+		"formation_grid": solid_formation.get("formation_grid", []),
+		"formation_origin_cell": solid_formation.get("formation_origin_cell", Vector2i(-1, -1)),
+		"owned_visual_origin": solid_formation.get("owned_visual_origin", Vector2i.ZERO),
+		"owned_visual_size": solid_formation.get("owned_visual_size", _grid_dimension_vec(logic_grid)),
+		"formation_mode": solid_formation.get("formation_mode", "owned_halo"),
+		"source_chunk_coords": solid_formation.get("source_chunk_coords", []),
 		"debug_markers": generation_result.get("debug_markers", []),
 		"generation_settings": generation_settings.duplicate(true),
 		"diagnostics": diagnostics,
@@ -104,3 +111,11 @@ static func _topology_layers_from_logic_grid(logic_grid: Array) -> Dictionary:
 		LAYER_WATER: water,
 		LAYER_CLIFF: cliff,
 	}
+
+
+static func _grid_dimension_vec(grid: Array) -> Vector2i:
+	var height := grid.size()
+	var width := 0
+	for row in grid:
+		width = maxi(width, int(row.size()))
+	return Vector2i(width, height)
