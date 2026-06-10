@@ -5,4 +5,5 @@
 !/addons/godot_world_streaming/bin/.gitkeep
 *.tmp
 *.translation
-
+*.txt
+*.DS_STORE
