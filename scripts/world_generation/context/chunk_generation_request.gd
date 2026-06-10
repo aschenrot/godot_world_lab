@@ -80,16 +80,24 @@ func to_dictionary() -> Dictionary:
 		"halo_cells": halo_cells,
 		"requested_product_set": requested_product_set.duplicate(),
 		"debug_flags": debug_flags.duplicate(true),
+		"generation_signature_hash": signature_hash(),
+		"lifecycle_signature_hash": lifecycle_signature_hash(),
 	}
 
 
 func signature_hash() -> int:
-	var h := GeneratedChunkIdentity.stable_hash_string("ChunkGenerationRequest:v1")
-	h = GeneratedChunkIdentity.mix_hash(h, request_id)
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_string(request_kind))
+	var h := GeneratedChunkIdentity.stable_hash_string("ChunkGenerationRequest:generation:v1")
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(chunk_coord))
 	h = GeneratedChunkIdentity.mix_hash(h, chunk_size_cells)
 	h = GeneratedChunkIdentity.mix_hash(h, halo_cells)
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(requested_product_set))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(debug_flags))
+	return h
+
+
+func lifecycle_signature_hash() -> int:
+	var h := GeneratedChunkIdentity.stable_hash_string("ChunkGenerationRequest:lifecycle:v1")
+	h = GeneratedChunkIdentity.mix_hash(h, request_id)
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_string(request_kind))
+	h = GeneratedChunkIdentity.mix_hash(h, signature_hash())
 	return h
