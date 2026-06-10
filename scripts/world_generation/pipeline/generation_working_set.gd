@@ -9,6 +9,7 @@ const STORE_CONTINUITY := "continuity"
 const STORE_PLACEMENT := "placement"
 const STORE_TOPOLOGY := "topology"
 const STORE_FORMATION := "formation"
+const STORE_PRODUCTS := "products"
 const STORE_DIAGNOSTICS := "diagnostics"
 
 var snapshot: WorldDefinitionSnapshot = null
@@ -20,6 +21,7 @@ var continuity_facts: Dictionary = {}
 var placement_candidates: Dictionary = {}
 var topology_projections: Dictionary = {}
 var formation_products: Dictionary = {}
+var generated_products: Dictionary = {}
 var diagnostics: Dictionary = {}
 var validation_issues: PackedStringArray = PackedStringArray()
 var stage_results: Array = []
@@ -46,6 +48,7 @@ func configure(
 	placement_candidates = {}
 	topology_projections = {}
 	formation_products = {}
+	generated_products = {}
 	diagnostics = {}
 	validation_issues = PackedStringArray()
 	stage_results = []
@@ -61,6 +64,7 @@ func duplicate_working_set() -> GenerationWorkingSet:
 	copy.placement_candidates = placement_candidates.duplicate(true)
 	copy.topology_projections = topology_projections.duplicate(true)
 	copy.formation_products = formation_products.duplicate(true)
+	copy.generated_products = generated_products.duplicate(true)
 	copy.diagnostics = diagnostics.duplicate(true)
 	copy.validation_issues = validation_issues.duplicate()
 	for result in stage_results:
@@ -143,6 +147,7 @@ func to_dictionary() -> Dictionary:
 		"placement_candidates": placement_candidates.duplicate(true),
 		"topology_projections": topology_projections.duplicate(true),
 		"formation_products": formation_products.duplicate(true),
+		"generated_products": generated_products.duplicate(true),
 		"diagnostics": diagnostics.duplicate(true),
 		"validation_issues": validation_issues.duplicate(),
 		"stage_results": stage_report(),
@@ -161,6 +166,7 @@ func signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(placement_candidates))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(topology_projections))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(formation_products))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(generated_products))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(diagnostics))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(validation_issues))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(stage_report()))
@@ -183,6 +189,8 @@ func _store_for_id(store_id: String) -> Variant:
 			return topology_projections
 		STORE_FORMATION:
 			return formation_products
+		STORE_PRODUCTS:
+			return generated_products
 		STORE_DIAGNOSTICS:
 			return diagnostics
 		_:
