@@ -187,7 +187,7 @@ static func stable_hash_variant(value: Variant) -> int:
 			return h_rect2i
 		TYPE_PACKED_STRING_ARRAY:
 			var string_values: PackedStringArray = value
-			return _hash_string_array(normalized_requested_products(string_values))
+			return stable_hash_packed_string_array(string_values)
 		TYPE_ARRAY:
 			var array_value: Array = value
 			var h_array := stable_hash_string("Array:%s" % array_value.size())
@@ -199,6 +199,13 @@ static func stable_hash_variant(value: Variant) -> int:
 			return _hash_dictionary(dictionary_value)
 		_:
 			return stable_hash_string(str(value))
+
+
+static func stable_hash_packed_string_array(values: PackedStringArray) -> int:
+	var h := stable_hash_string("PackedStringArray:%s" % values.size())
+	for index in range(values.size()):
+		h = mix_hash(h, stable_hash_string(String(values[index])))
+	return h
 
 
 static func _to_packed_string_array(value: Variant) -> PackedStringArray:
@@ -227,13 +234,6 @@ static func _hash_dictionary(dictionary_value: Dictionary) -> int:
 		var key_value := keys[index]
 		h = mix_hash(h, stable_hash_string(key_value))
 		h = mix_hash(h, stable_hash_variant(values_by_key[key_value]))
-	return h
-
-
-static func _hash_string_array(values: PackedStringArray) -> int:
-	var h := stable_hash_string("PackedStringArray:%s" % values.size())
-	for index in range(values.size()):
-		h = mix_hash(h, stable_hash_string(values[index]))
 	return h
 
 
