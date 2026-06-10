@@ -91,6 +91,12 @@ func run(
 	if context == null:
 		working_set.add_validation_issue("missing_generation_context")
 		return working_set
+	if context.identity == null:
+		working_set.add_validation_issue("missing_generated_chunk_identity")
+		return working_set
+	if not _context_matches_snapshot(snapshot, context):
+		working_set.add_validation_issue("generation_context_snapshot_identity_mismatch")
+		return working_set
 
 	for index in range(stages.size()):
 		var stage: GenerationStage = stages[index]
@@ -125,6 +131,10 @@ func run_from_definition_and_request(
 		empty_set.add_validation_issue("missing_world_definition")
 		return empty_set
 	var snapshot := definition.compile_snapshot()
+	if request == null:
+		var missing_request_set := GenerationWorkingSet.from_snapshot_and_context(snapshot, null)
+		missing_request_set.add_validation_issue("missing_chunk_generation_request")
+		return missing_request_set
 	var context := GenerationContext.from_snapshot_and_request(snapshot, request)
 	return run(snapshot, context)
 
@@ -164,3 +174,12 @@ func signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, 1 if halt_on_stage_failure else 0)
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(stage_report()))
 	return h
+
+
+func _context_matches_snapshot(snapshot: WorldDefinitionSnapshot, context: GenerationContext) -> bool:
+	if snapshot == null or context == null or context.identity == null:
+		return false
+	return context.identity.world_definition_id == snapshot.world_definition_id \
+		and context.identity.world_definition_version == snapshot.world_definition_version \
+		and context.identity.world_definition_hash == snapshot.world_definition_hash \
+		and context.identity.generation_settings_hash == snapshot.generation_settings_hash
