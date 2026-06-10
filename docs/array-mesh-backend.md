@@ -32,4 +32,3 @@ Validation:
 ```text
 godot --headless --path . --script tests/array_mesh_backend_smoke.gd
 ```
-

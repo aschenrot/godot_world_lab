@@ -1,12 +1,14 @@
 [gd_scene format=3 uid="uid://dqu0l24omials"]
 
 [ext_resource type="Script" uid="uid://ntgk6q1js3bt" path="res://scripts/world_controller.gd" id="1_world_controller"]
+[ext_resource type="Environment" uid="uid://b4e5xwils8xpt" path="res://assets/resources/world_environment.tres" id="2_0wfyh"]
 
 [node name="Main" type="Node3D" unique_id=2139166187]
 script = ExtResource("1_world_controller")
 
 [node name="PlayerOrCamera" type="Camera3D" parent="." unique_id=2081747821]
 transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 36, 48)
+environment = ExtResource("2_0wfyh")
 current = true
 
 [node name="ChunkRootContainer" type="Node3D" parent="." unique_id=1310103651]
