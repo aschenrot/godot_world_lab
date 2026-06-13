@@ -49,6 +49,7 @@ class PrivateLegacyProbeProvider:
 func _initialize() -> void:
 	test_ordered_hash_changes_when_order_changes()
 	test_unordered_hash_does_not_change_when_order_changes()
+	test_generated_chunk_identity_requested_products_are_unordered()
 	test_world_definition_and_snapshot_hash_semantics_match()
 	test_legacy_stage_calls_private_legacy_generation_method()
 	test_provider_public_generation_path_routes_through_pipeline()
@@ -75,6 +76,39 @@ func test_unordered_hash_does_not_change_when_order_changes() -> void:
 		GeneratedChunkIdentity.stable_hash_unordered_string_ids(a)
 		== GeneratedChunkIdentity.stable_hash_unordered_string_ids(b),
 		"unordered string id hash ignores order while preserving duplicate handling"
+	)
+
+
+func test_generated_chunk_identity_requested_products_are_unordered() -> void:
+	var identity_a := GeneratedChunkIdentity.from_parts(
+		"identity_hash_smoke_world",
+		3,
+		101,
+		202,
+		Vector3i(4, 0, -2),
+		PackedStringArray()
+	)
+	var identity_b := GeneratedChunkIdentity.from_parts(
+		"identity_hash_smoke_world",
+		3,
+		101,
+		202,
+		Vector3i(4, 0, -2),
+		PackedStringArray()
+	)
+	identity_a.requested_product_set = PackedStringArray([
+		"generated_world_chunk",
+		"formation_products",
+		"generated_world_chunk",
+	])
+	identity_b.requested_product_set = PackedStringArray([
+		"generated_world_chunk",
+		"generated_world_chunk",
+		"formation_products",
+	])
+	_assert(
+		identity_a.signature_hash() == identity_b.signature_hash(),
+		"GeneratedChunkIdentity requested_product_set signature hash ignores order"
 	)
 
 

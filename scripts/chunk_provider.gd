@@ -208,6 +208,8 @@ func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
 		LegacyChunkGenerationStage.from_provider(self)
 	])
 	var working_set := pipeline.run(snapshot, context)
+	if working_set.has_validation_errors():
+		push_error("chunk generation pipeline validation issues: %s" % str(working_set.validation_issues))
 	var world_chunk := GeneratedWorldChunk.from_working_set(working_set)
 	return GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
 

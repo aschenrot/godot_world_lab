@@ -115,7 +115,7 @@ func signature_hash() -> int:
 	h = mix_hash(h, chunk_coord.x)
 	h = mix_hash(h, chunk_coord.y)
 	h = mix_hash(h, chunk_coord.z)
-	h = mix_hash(h, stable_hash_variant(requested_product_set))
+	h = mix_hash(h, stable_hash_unordered_string_ids(requested_product_set))
 	h = mix_hash(h, pipeline_version)
 	return h
 
