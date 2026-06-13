@@ -5,6 +5,8 @@ class_name LegacyChunkGenerationStage
 const STAGE_ID := "legacy_chunk_generation_stage"
 const PRIVATE_LEGACY_METHOD := "_generate_legacy_chunk_generation_result"
 const PUBLIC_COMPATIBILITY_METHOD := "generate_chunk_generation_result"
+const SEMANTIC_LEGACY_TERRAIN_LAYER_KEY := "semantic_legacy_terrain_cells"
+const WorldLayerSetScript := preload("res://scripts/world_generation/layers/world_layer_set.gd")
 
 var provider: Node = null
 
@@ -68,6 +70,20 @@ func _run(
 		"legacy_terrain_cells",
 		normalized_result.get("terrain_cells", [])
 	)
+
+	var semantic_layer_set := WorldLayerSetScript.from_legacy_generation_result(
+		normalized_result,
+		_context_bounds(context),
+		context.domain_descriptor
+	)
+	var semantic_legacy_terrain_layer: RefCounted = semantic_layer_set.get_layer(WorldLayerSetScript.LEGACY_TERRAIN_LAYER_ID)
+	if semantic_legacy_terrain_layer != null:
+		working_set.set_store_value(
+			GenerationWorkingSet.STORE_LAYERS,
+			SEMANTIC_LEGACY_TERRAIN_LAYER_KEY,
+			semantic_legacy_terrain_layer.to_dictionary()
+		)
+
 	working_set.set_store_value(
 		GenerationWorkingSet.STORE_FEATURES,
 		"legacy_debug_markers",
@@ -113,3 +129,16 @@ func _has_required_compatibility_shape(generation_result: Dictionary) -> bool:
 		and generation_result.has("logic_grid") \
 		and generation_result.has("debug_markers") \
 		and generation_result.has("diagnostics")
+
+
+func _context_bounds(context: GenerationContext) -> Dictionary:
+	if context == null:
+		return {}
+	return {
+		"chunk_coord": context.chunk_coord,
+		"domain_descriptor": context.domain_descriptor,
+		"owned_cell_bounds": context.owned_cell_bounds,
+		"sample_cell_bounds": context.sample_cell_bounds,
+		"chunk_size_cells": context.chunk_size_cells,
+		"halo_cells": context.halo_cells,
+	}

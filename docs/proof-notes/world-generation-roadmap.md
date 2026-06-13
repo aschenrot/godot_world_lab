@@ -35,7 +35,10 @@ M4 complete
 M5 complete for the legacy-wrap migration gate
 M6 complete for the compatibility adapter migration gate
 Current migration gate complete: hash hardening, smoke tests, provider pipeline wiring
-Next gate: begin M7+ only after review; do not remove legacy generation yet
+M7A complete: legacy terrain cells can be represented as data-only WorldLayer/WorldLayerSet while compatibility output remains unchanged.
+This does not remove legacy generation.
+This does not complete topology projection, formation products, domain diversity, or extraction.
+Next gate: continue M7+ only after review; do not remove legacy generation yet
 ```
 
 The migration gate passed with:
@@ -678,6 +681,9 @@ scripts/world_generation/layers/world_layer_schema.gd
 ```
 
 Done when current `terrain_cells` and `topology_layers` can be represented as semantic layers plus derived topology views.
+
+M7A complete: data-only semantic world-layer contract foundation exists for legacy `terrain_cells`.
+The compatibility output remains unchanged, and topology projection is still deferred to M8.
 
 ---
 
