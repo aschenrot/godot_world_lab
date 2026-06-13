@@ -28,16 +28,27 @@ Generation produces generated world facts. It does not create Godot nodes, meshe
 ```text
 M0.1 complete
 M0.2 complete
+M1 complete
 M2 complete
 M3 complete
 M4 complete
-M1 partial until hash semantics are hardened and tested
-M5 partial until provider public generation path routes through GenerationPipeline
-M6 partial until GeneratedWorldChunk and GeneratedChunkDataAdapter are the canonical compatibility path
-Current gate: hash hardening, smoke tests, provider pipeline wiring
+M5 complete for the legacy-wrap migration gate
+M6 complete for the compatibility adapter migration gate
+Current migration gate complete: hash hardening, smoke tests, provider pipeline wiring
+Next gate: begin M7+ only after review; do not remove legacy generation yet
 ```
 
-The initial docs-only package is complete. The roadmap must no longer be read as if no runtime scaffolding exists yet; the current implementation focus is completing the migration gate above before M7+ semantic, topology, formation, cache, or extraction work.
+The migration gate passed with:
+
+```sh
+godot --headless --path . --script tests/world_generation_migration_gate_smoke.gd
+```
+
+The initial docs-only package is complete. The roadmap must no longer be read as if no runtime scaffolding exists yet. M7+ semantic, topology, formation, cache, or extraction work remains review-gated.
+
+M5 completion does not mean legacy generation has been deleted. It means the public provider path now routes through `GenerationPipeline` while the legacy generator remains isolated behind `LegacyChunkGenerationStage` and `_generate_legacy_chunk_generation_result(...)`.
+
+M6 completion does not mean final semantic topology/formation products are mature. It means `GeneratedWorldChunk` and `GeneratedChunkDataAdapter` are now the canonical compatibility bridge for the current runtime.
 
 ---
 
@@ -1083,9 +1094,9 @@ defer extraction unless two world definitions and one non-Godot consumer need ar
 
 ---
 
-## Current Migration Gate
+## Completed Migration Gate
 
-The docs-only baseline package (`M0.1 + M0.2`) is complete. The next work is not another roadmap-only package; it is the current migration gate:
+The docs-only baseline package (`M0.1 + M0.2`) and the migration gate are complete:
 
 ```text
 hash hardening
@@ -1101,7 +1112,14 @@ No concrete continent, cave, Voronoi, SDF, Runenwerk integration, save/load, ECS
 No Rust crate, repository extraction, Runenwerk integration, grid ownership move, or spatial_streaming ownership move.
 ```
 
-This gate is complete when the legacy provider generation path is deterministic under explicit ordered/unordered hash semantics, smoke-tested, finalized into `GeneratedWorldChunk`, and adapted back to the existing compatibility output through `GeneratedChunkDataAdapter`.
+This gate passed when the legacy provider generation path became deterministic under explicit ordered/unordered hash semantics, smoke-tested, finalized into `GeneratedWorldChunk`, and adapted back to the existing compatibility output through `GeneratedChunkDataAdapter`.
+
+Next gate:
+
+```text
+begin M7+ only after review
+do not remove legacy generation yet
+```
 
 ---
 
