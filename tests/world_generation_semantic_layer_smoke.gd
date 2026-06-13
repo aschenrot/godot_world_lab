@@ -14,6 +14,7 @@ func _initialize() -> void:
 	test_world_layer_set_from_legacy_generation_result_contains_legacy_terrain_layer()
 	test_world_layer_set_signature_is_deterministic()
 	test_world_layer_set_duplicate_layer_ids_record_invalid_without_overwrite()
+	test_world_layer_set_get_layer_returns_mutation_safe_copy()
 	test_generated_world_chunk_can_carry_semantic_layer_without_breaking_compatibility()
 	test_existing_migration_gate_smoke_still_passes()
 	quit(1 if failed else 0)
@@ -133,6 +134,27 @@ func test_world_layer_set_duplicate_layer_ids_record_invalid_without_overwrite()
 	overwrite_set.add_layer(layer)
 	overwrite_set.add_layer(layer, true)
 	_assert(overwrite_set.is_valid(), "WorldLayerSet allows explicit duplicate overwrite")
+
+
+func test_world_layer_set_get_layer_returns_mutation_safe_copy() -> void:
+	var layer_set: RefCounted = WorldLayerSetScript.from_legacy_generation_result(
+		_sample_generation_result(),
+		_sample_bounds(),
+		WorldSpace.DOMAIN_CELL_GRID_2D
+	)
+	var retrieved_layer: RefCounted = layer_set.get_layer("legacy_terrain_cells")
+	var original_signature: int = layer_set.signature_hash()
+	retrieved_layer.layer_id = "mutated_layer_id"
+	retrieved_layer.cells[0][0]["material"] = "mutated_material"
+
+	var stored_layer: RefCounted = layer_set.get_layer("legacy_terrain_cells")
+	_assert(layer_set.has_layer("legacy_terrain_cells"), "WorldLayerSet keeps original layer id after retrieved copy mutation")
+	_assert(layer_set.signature_hash() == original_signature, "WorldLayerSet signature is stable after retrieved copy mutation")
+	_assert(stored_layer.layer_id == "legacy_terrain_cells", "WorldLayerSet stored layer id is mutation-safe")
+	_assert(
+		stored_layer.cells[0][0]["material"] == "ground",
+		"WorldLayerSet stored layer cells are mutation-safe"
+	)
 
 
 func test_generated_world_chunk_can_carry_semantic_layer_without_breaking_compatibility() -> void:

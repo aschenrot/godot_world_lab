@@ -74,7 +74,7 @@ func get_layer(layer_id: String) -> RefCounted:
 	var normalized_layer_id := layer_id.strip_edges()
 	if not layers_by_id.has(normalized_layer_id):
 		return null
-	return layers_by_id[normalized_layer_id]
+	return layers_by_id[normalized_layer_id].duplicate_layer()
 
 
 func layer_ids() -> PackedStringArray:
