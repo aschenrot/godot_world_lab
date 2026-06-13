@@ -208,6 +208,22 @@ static func stable_hash_packed_string_array(values: PackedStringArray) -> int:
 	return h
 
 
+static func stable_hash_ordered_string_ids(values: PackedStringArray) -> int:
+	var normalized := _normalized_string_ids(values, false)
+	var h := stable_hash_string("OrderedStringIds:%s" % normalized.size())
+	for index in range(normalized.size()):
+		h = mix_hash(h, stable_hash_string(String(normalized[index])))
+	return h
+
+
+static func stable_hash_unordered_string_ids(values: PackedStringArray) -> int:
+	var normalized := _normalized_string_ids(values, true)
+	var h := stable_hash_string("UnorderedStringIds:%s" % normalized.size())
+	for index in range(normalized.size()):
+		h = mix_hash(h, stable_hash_string(String(normalized[index])))
+	return h
+
+
 static func _to_packed_string_array(value: Variant) -> PackedStringArray:
 	if typeof(value) == TYPE_PACKED_STRING_ARRAY:
 		return value
@@ -218,6 +234,18 @@ static func _to_packed_string_array(value: Variant) -> PackedStringArray:
 	for item in array_value:
 		result.append(String(item))
 	return result
+
+
+static func _normalized_string_ids(values: PackedStringArray, sort_values: bool) -> PackedStringArray:
+	var normalized: Array[String] = []
+	for index in range(values.size()):
+		var value := String(values[index]).strip_edges()
+		if value.is_empty():
+			continue
+		normalized.append(value)
+	if sort_values:
+		normalized.sort()
+	return PackedStringArray(normalized)
 
 
 static func _hash_dictionary(dictionary_value: Dictionary) -> int:

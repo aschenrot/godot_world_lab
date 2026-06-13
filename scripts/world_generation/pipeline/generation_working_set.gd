@@ -74,7 +74,7 @@ func duplicate_working_set() -> GenerationWorkingSet:
 
 
 func set_store_value(store_id: String, key: String, value: Variant) -> void:
-	var store := _store_for_id(store_id)
+	var store: Variant = _store_for_id(store_id)
 	var normalized_key := key.strip_edges()
 	if store == null or normalized_key.is_empty():
 		return
@@ -82,19 +82,19 @@ func set_store_value(store_id: String, key: String, value: Variant) -> void:
 
 
 func get_store_value(store_id: String, key: String, default_value: Variant = null) -> Variant:
-	var store := _store_for_id(store_id)
+	var store: Variant = _store_for_id(store_id)
 	if store == null:
 		return default_value
 	return store.get(key.strip_edges(), default_value)
 
 
 func has_store_value(store_id: String, key: String) -> bool:
-	var store := _store_for_id(store_id)
+	var store: Variant = _store_for_id(store_id)
 	return store != null and store.has(key.strip_edges())
 
 
 func erase_store_value(store_id: String, key: String) -> void:
-	var store := _store_for_id(store_id)
+	var store: Variant = _store_for_id(store_id)
 	if store == null:
 		return
 	store.erase(key.strip_edges())

@@ -14,12 +14,30 @@ WorldDefinition
 → GenerationContext
 → GenerationPipeline
 → GeneratedWorldChunk
-→ topology projections
-→ formation products
+→ TopologyProjectionSet
+→ FormationProductSet
 → Godot realization
 ```
 
 Generation produces generated world facts. It does not create Godot nodes, meshes, collision objects, scenes, save records, ECS entities, Runenwerk SDF payloads, or gameplay spawns.
+
+---
+
+## Current Implementation Status
+
+```text
+M0.1 complete
+M0.2 complete
+M2 complete
+M3 complete
+M4 complete
+M1 partial until hash semantics are hardened and tested
+M5 partial until provider public generation path routes through GenerationPipeline
+M6 partial until GeneratedWorldChunk and GeneratedChunkDataAdapter are the canonical compatibility path
+Current gate: hash hardening, smoke tests, provider pipeline wiring
+```
+
+The initial docs-only package is complete. The roadmap must no longer be read as if no runtime scaffolding exists yet; the current implementation focus is completing the migration gate above before M7+ semantic, topology, formation, cache, or extraction work.
 
 ---
 
@@ -1065,30 +1083,25 @@ defer extraction unless two world definitions and one non-Godot consumer need ar
 
 ---
 
-## Immediate Implementation Package
+## Current Migration Gate
 
-Do this package first:
-
-```text
-Package A = M0.1 + M0.2
-```
-
-Files:
+The docs-only baseline package (`M0.1 + M0.2`) is complete. The next work is not another roadmap-only package; it is the current migration gate:
 
 ```text
-docs/proof-notes/world-generation-roadmap.md
-docs/proof-notes/world-generation-contract.md
+hash hardening
+smoke tests
+provider pipeline wiring
 ```
 
 Rules:
 
 ```text
-No runtime code yet.
 No new world algorithm yet.
-No concrete continent, cave, Voronoi, SDF, Runenwerk integration, save/load, ECS, asset extraction, or gameplay spawning.
+No concrete continent, cave, Voronoi, SDF, Runenwerk integration, save/load, ECS, asset extraction, gameplay spawning, or M7+ semantic-layer rewrite.
+No Rust crate, repository extraction, Runenwerk integration, grid ownership move, or spatial_streaming ownership move.
 ```
 
-Package A is complete when the repository contains the updated roadmap and the canonical architecture contract.
+This gate is complete when the legacy provider generation path is deterministic under explicit ordered/unordered hash semantics, smoke-tested, finalized into `GeneratedWorldChunk`, and adapted back to the existing compatibility output through `GeneratedChunkDataAdapter`.
 
 ---
 

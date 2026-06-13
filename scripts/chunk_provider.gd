@@ -192,6 +192,27 @@ func generate_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
 
 
 func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
+	var definition := _world_definition_for_generation()
+	var snapshot := definition.compile_snapshot()
+	var request := ChunkGenerationRequest.from_provider_request(
+		-1,
+		ChunkGenerationRequest.KIND_LOAD,
+		chunk_coord,
+		effective_chunk_size_cells(),
+		1,
+		snapshot.requested_product_set,
+		{"provider": "chunk_provider"}
+	)
+	var context := GenerationContext.from_snapshot_and_request(snapshot, request)
+	var pipeline := GenerationPipeline.from_stages([
+		LegacyChunkGenerationStage.from_provider(self)
+	])
+	var working_set := pipeline.run(snapshot, context)
+	var world_chunk := GeneratedWorldChunk.from_working_set(working_set)
+	return GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
+
+
+func _generate_legacy_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
 	var size: int = effective_chunk_size_cells()
 	var solid_layer := _generate_smoothed_solid_layer(chunk_coord, size)
 	var terrain_cells := _generate_base_terrain_cells(chunk_coord, size, solid_layer)
@@ -241,10 +262,6 @@ func make_generated_chunk_data(
 		topology_layers = _topology_layers_from_logic_grid(logic_grid)
 	var solid_grid: Array = topology_layers.get(LAYER_SOLID, logic_grid)
 	var formation_layers := make_formation_layers(chunk_coord, topology_layers)
-	var solid_formation: Dictionary = formation_layers.get(
-		LAYER_SOLID,
-		make_formation_data(chunk_coord, solid_grid)
-	)
 	var diagnostics: Dictionary = generation_result.get(
 		"diagnostics",
 		_terrain_diagnostics(
@@ -252,27 +269,22 @@ func make_generated_chunk_data(
 			topology_layers
 		)
 	)
-
-	return {
-		"product_type": "GeneratedChunkData",
-		"authority": TERRAIN_AUTHORITY,
-		"chunk_coord": chunk_coord,
-		"generator_version": generator_version,
-		"generation_settings_hash": generation_settings_hash(),
+	var compatibility_result := GeneratedChunkDataAdapter.normalize_generation_result({
 		"terrain_cells": generation_result.get("terrain_cells", _terrain_cells_from_logic_grid(solid_grid)),
 		"topology_layers": topology_layers,
-		"formation_layers": formation_layers,
 		"logic_grid": solid_grid,
-		"formation_grid": solid_formation.get("formation_grid", []),
-		"formation_origin_cell": solid_formation.get("formation_origin_cell", Vector2i(-1, -1)),
-		"owned_visual_origin": solid_formation.get("owned_visual_origin", Vector2i.ZERO),
-		"owned_visual_size": solid_formation.get("owned_visual_size", _grid_dimension_vec(solid_grid)),
-		"formation_mode": solid_formation.get("formation_mode", "owned_halo"),
-		"source_chunk_coords": solid_formation.get("source_chunk_coords", []),
 		"debug_markers": generation_result.get("debug_markers", []),
-		"generation_settings": generation_diagnostics(),
 		"diagnostics": diagnostics,
-	}
+	})
+	var world_chunk := _world_chunk_from_compatibility_generation_result(
+		chunk_coord,
+		compatibility_result
+	)
+	return GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
+		world_chunk,
+		formation_layers,
+		generation_diagnostics()
+	)
 
 
 func make_formation_layers(chunk_coord: Vector3i, topology_layers: Dictionary) -> Dictionary:
@@ -359,6 +371,102 @@ func generation_diagnostics() -> Dictionary:
 		"liquid_blocks_movement": liquid_blocks_movement,
 		"debug_generation_markers_enabled": debug_generation_markers_enabled,
 		"generation_settings_hash": generation_settings_hash(),
+	}
+
+
+func _world_definition_for_generation() -> WorldDefinition:
+	var definition := WorldDefinition.new()
+	definition.world_definition_id = "godot_lab_legacy_provider"
+	definition.world_definition_version = generator_version
+	definition.world_seed = world_seed
+	definition.domain_descriptor = WorldSpace.DOMAIN_CELL_GRID_2D
+	definition.generation_settings = _world_generation_settings_dictionary()
+	definition.stage_ids = PackedStringArray([LegacyChunkGenerationStage.STAGE_ID])
+	definition.layer_schema_ids = PackedStringArray([
+		LAYER_GROUND,
+		LAYER_WATER,
+		LAYER_SOLID,
+		LAYER_CLIFF,
+	])
+	definition.feature_schema_ids = PackedStringArray(["legacy_debug_markers"])
+	definition.continuity_policy_ids = PackedStringArray()
+	definition.requested_topology_projections = PackedStringArray([
+		LAYER_GROUND,
+		LAYER_WATER,
+		LAYER_SOLID,
+		LAYER_CLIFF,
+	])
+	definition.requested_formation_products = PackedStringArray([
+		LAYER_GROUND,
+		LAYER_WATER,
+		LAYER_SOLID,
+		LAYER_CLIFF,
+	])
+	definition.requested_product_set = PackedStringArray([
+		GeneratedChunkIdentity.PRODUCT_GENERATED_WORLD_CHUNK,
+	])
+	return definition
+
+
+func _world_generation_settings_dictionary() -> Dictionary:
+	return {
+		"authority": TERRAIN_AUTHORITY,
+		"world_seed": world_seed,
+		"generator_version": generator_version,
+		"chunk_size_cells": chunk_size_cells,
+		"effective_chunk_size_cells": effective_chunk_size_cells(),
+		"wall_threshold_percent": wall_threshold_percent,
+		"debug_force_chunk_border": debug_force_chunk_border,
+		"smoothing_passes": smoothing_passes,
+		"room_attempts": room_attempts,
+		"room_min_size": room_min_size,
+		"room_max_size": room_max_size,
+		"terrain_noise_frequency": terrain_noise_frequency,
+		"liquid_noise_frequency": liquid_noise_frequency,
+		"solid_noise_frequency": solid_noise_frequency,
+		"liquid_threshold_percent": liquid_threshold_percent,
+		"target_walkable_min_percent": target_walkable_min_percent,
+		"target_walkable_max_percent": target_walkable_max_percent,
+		"liquid_blocks_movement": liquid_blocks_movement,
+		"debug_generation_markers_enabled": debug_generation_markers_enabled,
+		"legacy_provider_generation_settings_hash": generation_settings_hash(),
+	}
+
+
+func _world_chunk_from_compatibility_generation_result(
+	chunk_coord: Vector3i,
+	generation_result: Dictionary
+) -> GeneratedWorldChunk:
+	var definition := _world_definition_for_generation()
+	var identity := GeneratedChunkIdentity.from_parts(
+		definition.world_definition_id,
+		generator_version,
+		definition.definition_hash(),
+		generation_settings_hash(),
+		chunk_coord,
+		definition.requested_product_set
+	)
+	return GeneratedWorldChunk.from_legacy_generation_result(
+		identity,
+		_world_generation_bounds_for_chunk(chunk_coord),
+		generation_result,
+		generation_result.get("diagnostics", {})
+	)
+
+
+func _world_generation_bounds_for_chunk(chunk_coord: Vector3i) -> Dictionary:
+	var world_space := WorldSpace.from_parts(
+		effective_chunk_size_cells(),
+		1,
+		WorldSpace.DOMAIN_CELL_GRID_2D
+	)
+	return {
+		"chunk_coord": chunk_coord,
+		"domain_descriptor": WorldSpace.DOMAIN_CELL_GRID_2D,
+		"owned_cell_bounds": world_space.owned_cell_bounds_for_chunk(chunk_coord),
+		"sample_cell_bounds": world_space.sample_cell_bounds_for_chunk(chunk_coord),
+		"chunk_size_cells": effective_chunk_size_cells(),
+		"halo_cells": 1,
 	}
 
 
