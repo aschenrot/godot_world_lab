@@ -225,8 +225,39 @@ func get_runtime_diagnostics() -> Dictionary:
 		"catalog": catalog_diagnostics,
 		"last_visual_plan": last_visual_plan_diagnostics,
 		"last_instantiation_plan": last_instantiation_plan_diagnostics,
+		"runtime_budgets": runtime_budget_contract(),
 		"visual_roots_have_matching_metadata": visual_roots_have_matching_metadata(),
 }
+
+
+func runtime_budget_contract() -> Dictionary:
+	var cells_per_chunk := 16
+	if chunk_provider != null:
+		cells_per_chunk = maxi(int(chunk_provider.get("chunk_size_cells")), 1)
+	return {
+		"product_type": "RuntimeRealizationBudget",
+		"visual_backend": "multimesh",
+		"residency_root_pooling": true,
+		"max_pooled_visual_roots": max_pooled_visual_roots,
+		"load_radius_chunks": load_radius_chunks,
+		"unload_radius_chunks": unload_radius_chunks,
+		"dirty_update_scope": "cell_visual_corners",
+		"dirty_cell_max_visual_corners": 4,
+		"full_visual_rebuild_scope": "chunk_residency_or_backend_change",
+		"collision_backend": "box_per_blocking_policy_cell",
+		"collision_shape_policy": "one_box_per_blocking_policy_cell",
+		"max_collision_shapes_per_chunk": cells_per_chunk * cells_per_chunk,
+		"provider_cache_entries": (
+			chunk_provider.cache_entry_count()
+			if chunk_provider != null and chunk_provider.has_method("cache_entry_count")
+			else 0
+		),
+		"formation_sample_cache_entries": (
+			chunk_provider.formation_sample_cache_count()
+			if chunk_provider != null and chunk_provider.has_method("formation_sample_cache_count")
+			else 0
+		),
+	}
 
 
 func collision_body_count() -> int:

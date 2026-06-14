@@ -10,12 +10,12 @@ const TOPOLOGY_LAYER_ORDER := [LAYER_GROUND, LAYER_WATER, LAYER_SOLID, LAYER_CLI
 const SELF_SCRIPT_PATH := "res://scripts/world_generation/formation/formation_layer_builder.gd"
 const FormationHaloSamplerScript := preload("res://scripts/world_generation/formation/formation_halo_sampler.gd")
 
-var session: RefCounted = null
+var session: Object = null
 var sampler: RefCounted = null
 
 
 static func from_sampler(
-	p_session: RefCounted,
+	p_session: Object,
 	p_sampler: RefCounted
 ) -> RefCounted:
 	var builder: RefCounted = load(SELF_SCRIPT_PATH).new()
@@ -23,7 +23,7 @@ static func from_sampler(
 
 
 func configure(
-	p_session: RefCounted,
+	p_session: Object,
 	p_sampler: RefCounted
 ) -> RefCounted:
 	session = p_session

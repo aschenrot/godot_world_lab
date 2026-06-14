@@ -19,14 +19,24 @@ static func generation_result_from_world_chunk(
 ) -> Dictionary:
 	if world_chunk == null:
 		return {}
-	if not world_chunk.legacy_generation_result.is_empty():
-		return normalize_generation_result(world_chunk.legacy_generation_result, copy_output)
 
+	var legacy_result := normalize_generation_result(world_chunk.legacy_generation_result, copy_output) \
+		if not world_chunk.legacy_generation_result.is_empty() else {}
 	var terrain_cells: Array = _terrain_cells_from_world_layers(world_chunk.world_layers, copy_output)
+	if terrain_cells.is_empty():
+		terrain_cells = legacy_result.get("terrain_cells", [])
 	var topology_layers: Dictionary = _topology_layers_from_world_chunk(world_chunk, copy_output)
+	if topology_layers.is_empty():
+		topology_layers = legacy_result.get("topology_layers", {})
 	var solid_grid: Array = topology_layers.get(LAYER_SOLID, [])
+	if solid_grid.is_empty():
+		solid_grid = legacy_result.get("logic_grid", [])
 	var debug_markers: Array = world_chunk.world_features.get("legacy_debug_markers", [])
-	var diagnostics: Dictionary = _copy_dictionary(world_chunk.generation_diagnostics, copy_output)
+	if debug_markers.is_empty():
+		debug_markers = legacy_result.get("debug_markers", [])
+	var diagnostics: Dictionary = _copy_dictionary(legacy_result.get("diagnostics", {}), copy_output)
+	if diagnostics.is_empty():
+		diagnostics = _copy_dictionary(world_chunk.generation_diagnostics, copy_output)
 	if diagnostics.is_empty():
 		diagnostics = {"authority": "generated_world_chunk_adapter"}
 
@@ -189,12 +199,13 @@ static func _topology_layers_from_projection_set(
 			var projection_data: Variant = projections_dictionary[projection_id]
 			if typeof(projection_data) != TYPE_DICTIONARY:
 				continue
-				var projection_dictionary: Dictionary = projection_data
-				var grid: Variant = projection_dictionary.get("grid", [])
-				if typeof(grid) == TYPE_ARRAY:
-					topology_layers[String(projection_id)] = _copy_array(grid, copy_output)
-			if not topology_layers.is_empty():
-				return topology_layers
+			var projection_dictionary: Dictionary = projection_data
+			var grid: Variant = projection_dictionary.get("grid", [])
+			if typeof(grid) == TYPE_ARRAY:
+				var grid_array: Array = grid
+				topology_layers[String(projection_id)] = _copy_array(grid_array, copy_output)
+		if not topology_layers.is_empty():
+			return topology_layers
 
 	var legacy_layers: Variant = projection_set_dictionary.get("topology_layers", {})
 	if typeof(legacy_layers) == TYPE_DICTIONARY:
@@ -230,10 +241,48 @@ static func _formation_layers_from_product_set(
 	copy_output: bool = true
 ) -> Dictionary:
 	if _is_formation_product_set(formation_product_set):
+		var product_layers := _formation_layers_from_products(
+			formation_product_set.get("products", {}),
+			copy_output
+		)
+		if not product_layers.is_empty():
+			return product_layers
 		var formation_layers: Variant = formation_product_set.get("formation_layers", {})
 		if typeof(formation_layers) == TYPE_DICTIONARY:
 			return _copy_dictionary(formation_layers, copy_output)
 	return _copy_dictionary(fallback_formation_layers, copy_output)
+
+
+static func _formation_layers_from_products(
+	products_data: Variant,
+	copy_output: bool = true
+) -> Dictionary:
+	if typeof(products_data) != TYPE_DICTIONARY:
+		return {}
+	var products: Dictionary = products_data
+	var formation_layers: Dictionary = {}
+	var product_ids := products.keys()
+	product_ids.sort()
+	for product_id in product_ids:
+		var product_data: Variant = products[product_id]
+		if typeof(product_data) != TYPE_DICTIONARY:
+			continue
+		var product: Dictionary = product_data
+		var layer_id := String(product.get("layer_id", "")).strip_edges()
+		if layer_id.is_empty():
+			continue
+		var formation_grid: Array = product.get("formation_grid", [])
+		var source_chunk_coords: Array = product.get("source_chunk_coords", [])
+		formation_layers[layer_id] = {
+			"layer_id": layer_id,
+			"formation_grid": _copy_array(formation_grid, copy_output),
+			"formation_origin_cell": product.get("formation_origin_cell", Vector2i(-1, -1)),
+			"owned_visual_origin": product.get("owned_visual_origin", Vector2i.ZERO),
+			"owned_visual_size": product.get("owned_visual_size", _grid_dimension_vec(formation_grid)),
+			"formation_mode": product.get("formation_mode", "owned_halo"),
+			"source_chunk_coords": _copy_array(source_chunk_coords, copy_output),
+		}
+	return formation_layers
 
 
 static func _is_formation_product_set(value: Variant) -> bool:

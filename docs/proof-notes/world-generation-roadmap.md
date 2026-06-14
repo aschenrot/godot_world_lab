@@ -738,7 +738,7 @@ Deferred:
 ```text
 TopologyProjector and TopologyProjectionPolicy remain deferred until topology derivation moves beyond wrapping current legacy grids.
 M9 must demote logic_grid to an adapter-only compatibility alias.
-Formation products remain future work.
+Formation products are covered by M10.
 Legacy generation remains retained until semantic/topology/formation parity is proven.
 ```
 
@@ -775,7 +775,7 @@ Deferred:
 
 ```text
 logic_grid remains present in public compatibility output, chunk cache records, and host compatibility methods until later adapter/cache milestones.
-Formation products remain future work.
+Formation products are covered by M10.
 Legacy generation remains retained until semantic/topology/formation parity is proven.
 ```
 
@@ -790,13 +790,15 @@ Files:
 ```text
 scripts/world_generation/formation/formation_product.gd
 scripts/world_generation/formation/formation_product_set.gd
+scripts/world_generation/formation/formation_layer_builder.gd
+scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd
 scripts/chunk_provider.gd
 method: make_formation_layers(...)
 ```
 
 Done when formation is data-first and no longer buried inside provider generation.
 
-M10 complete: data-only `FormationProduct` and `FormationProductSet` now wrap the current owned-halo `formation_layers`. `chunk_provider.gd` still builds the same owned-halo formation data, attaches a serialized `FormationProductSet` to the compatibility `GeneratedWorldChunk`, and `GeneratedChunkDataAdapter` emits both the new product set and all existing compatibility fields:
+M10 complete: data-only `FormationProduct` and `FormationProductSet` now wrap the current owned-halo `formation_layers`. `LegacyFormationProductStage` builds the formation products from requested topology projections during `GenerationPipeline`, stores the result in `GenerationWorkingSet.STORE_FORMATION` and `STORE_PRODUCTS`, and `GeneratedWorldChunk.from_working_set(...)` finalizes the canonical `formation_product_set` without provider-side patching. `GeneratedChunkDataAdapter` emits both the new product set and all existing compatibility fields:
 
 ```text
 formation_layers
@@ -821,9 +823,9 @@ godot --headless --path . --script tests/formation_products_smoke.gd
 Deferred:
 
 ```text
-FormationBuilder and OwnedHaloBuilder remain deferred until formation construction moves out of the provider.
-Visual/collision consumers still read compatibility fields through GeneratedChunkData.
-Legacy generation remains retained until semantic/topology/formation parity is proven.
+chunk_provider.make_generated_chunk_data(...) still has a compatibility path that builds GeneratedChunkData fields for existing host consumers.
+Visual/collision consumers still read compatibility fields through GeneratedChunkData while realization is migrated to canonical products.
+Legacy generation remains retained until semantic/topology/formation parity is proven across runtime consumers.
 ```
 
 ---

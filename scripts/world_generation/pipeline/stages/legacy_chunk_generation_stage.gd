@@ -62,6 +62,10 @@ func _run(
 		return GenerationStageResult.failed(stage_id, stage_category, "empty_legacy_generation_result")
 
 	var normalized_result := GeneratedChunkDataAdapter.normalize_generation_result(generation_result)
+	normalized_result["topology_layers"] = _filter_requested_topology_layers(
+		_snapshot,
+		normalized_result.get("topology_layers", {})
+	)
 	var internal_result := GeneratedChunkDataAdapter.generation_result_without_logic_grid_alias(normalized_result)
 	if not _has_required_compatibility_shape(internal_result):
 		return GenerationStageResult.failed(stage_id, stage_category, "invalid_legacy_generation_result_shape")
@@ -164,6 +168,7 @@ func _run(
 	result.increment_emitted_count("placement_candidate", placement_candidate_set.candidate_ids().size())
 	result.set_diagnostic("logic_grid_alias", "adapter.compatibility.logic_grid=topology_layers.solid")
 	result.set_diagnostic("provider_method", method_name)
+	result.set_diagnostic("requested_topology_projections", _snapshot.requested_topology_projections.duplicate())
 	return result
 
 
@@ -182,6 +187,20 @@ func _has_required_compatibility_shape(generation_result: Dictionary) -> bool:
 		and generation_result.has("topology_layers") \
 		and generation_result.has("debug_markers") \
 		and generation_result.has("diagnostics")
+
+
+func _filter_requested_topology_layers(
+	snapshot: WorldDefinitionSnapshot,
+	topology_layers: Dictionary
+) -> Dictionary:
+	if snapshot == null or snapshot.requested_topology_projections.is_empty():
+		return topology_layers
+	var filtered: Dictionary = {}
+	for projection_id in snapshot.requested_topology_projections:
+		var layer_id := String(projection_id)
+		if topology_layers.has(layer_id):
+			filtered[layer_id] = topology_layers[layer_id]
+	return filtered
 
 
 func _context_bounds(context: GenerationContext) -> Dictionary:

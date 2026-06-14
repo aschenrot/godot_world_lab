@@ -4,6 +4,7 @@ const CountingProviderScript := preload("res://tests/world_generation_migration_
 const StageDiagnosticsScript := preload("res://scripts/world_generation/diagnostics/stage_diagnostics.gd")
 const GenerationDiagnosticsScript := preload("res://scripts/world_generation/diagnostics/generation_diagnostics.gd")
 const GeneratedChunkReportScript := preload("res://scripts/world_generation/diagnostics/generated_chunk_report.gd")
+const LegacyFormationProductStageScript := preload("res://scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd")
 
 var failed: bool = false
 
@@ -13,6 +14,7 @@ func _initialize() -> void:
 	test_generation_diagnostics_reports_identity_counts_and_provenance()
 	test_generated_chunk_report_exposes_human_readable_summary()
 	test_diagnostics_signatures_are_deterministic_for_same_generated_products()
+	test_generated_truth_signature_ignores_report_payloads()
 	test_product_signature_changes_when_generated_product_changes()
 	quit(1 if failed else 0)
 
@@ -81,6 +83,10 @@ func test_generation_diagnostics_reports_identity_counts_and_provenance() -> voi
 	_assert(
 		int(emitted_counts.get("placement_candidate", 0)) == int(product_counts.get("placement_candidate", -1)),
 		"GenerationDiagnostics emitted placement candidate count matches products"
+	)
+	_assert(
+		int(emitted_counts.get("formation_product", 0)) == int(product_counts.get("formation_product", -1)),
+		"GenerationDiagnostics emitted formation product count matches products"
 	)
 	_assert(
 		int(product_signatures.get("generated_world_chunk", 0)) == world_chunk.signature_hash(),
@@ -159,6 +165,36 @@ func test_diagnostics_signatures_are_deterministic_for_same_generated_products()
 	provider_b.free()
 
 
+func test_generated_truth_signature_ignores_report_payloads() -> void:
+	var provider: Node = _configured_provider()
+	var session: RefCounted = provider._world_generation_session()
+	var chunk_coord := Vector3i(-2, 0, 2)
+	var with_stage_results: GeneratedWorldChunk = session.generate_world_chunk(
+		chunk_coord,
+		true,
+		true,
+		{"diagnostics_provenance_smoke": true}
+	)
+	var without_stage_results: GeneratedWorldChunk = session.generate_world_chunk(
+		chunk_coord,
+		true,
+		false,
+		{"diagnostics_provenance_smoke": true}
+	)
+
+	_assert(with_stage_results.stage_results.size() > 0, "reported chunk includes stage results")
+	_assert(without_stage_results.stage_results.is_empty(), "unreported chunk omits stage results")
+	_assert(
+		with_stage_results.signature_hash() == without_stage_results.signature_hash(),
+		"GeneratedWorldChunk generated-truth signature ignores report payloads"
+	)
+	_assert(
+		with_stage_results.report_signature_hash() != without_stage_results.report_signature_hash(),
+		"GeneratedWorldChunk report signature changes when report payloads change"
+	)
+	provider.free()
+
+
 func test_product_signature_changes_when_generated_product_changes() -> void:
 	var provider: Node = _configured_provider()
 	var world_chunk := _run_world_chunk_for_provider(provider, Vector3i(3, 0, -3))
@@ -214,7 +250,8 @@ func _run_world_chunk_for_provider(provider: Node, chunk_coord: Vector3i) -> Gen
 	)
 	var context := GenerationContext.from_snapshot_and_request(snapshot, request)
 	var pipeline := GenerationPipeline.from_stages([
-		LegacyChunkGenerationStage.from_provider(provider)
+		LegacyChunkGenerationStage.from_provider(provider),
+		LegacyFormationProductStageScript.from_session(provider)
 	])
 	var working_set := pipeline.run(snapshot, context)
 	return GeneratedWorldChunk.from_working_set(working_set)

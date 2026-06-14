@@ -107,6 +107,7 @@ func test_adapter_preserves_topology_layers_and_logic_grid_from_projection_set()
 		_sample_bounds(),
 		WorldSpace.DOMAIN_CELL_GRID_2D
 	).to_dictionary()
+	projection_set.erase("topology_layers")
 	var fallback_topology_layers := {
 		"ground": [[0, 0], [0, 0]],
 		"solid": [[1, 1], [1, 1]],

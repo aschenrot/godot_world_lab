@@ -5,7 +5,7 @@ class_name FormationHaloSampler
 const LAYER_SOLID := "solid"
 const SELF_SCRIPT_PATH := "res://scripts/world_generation/formation/formation_halo_sampler.gd"
 
-var session: RefCounted = null
+var session: Object = null
 var chunk_size_cells: int = 16
 var loaded_chunks: Dictionary = {}
 var chunk_cache: RefCounted = null
@@ -21,7 +21,7 @@ var full_neighbor_generation_count: int = 0
 
 
 static func from_context(
-	p_session: RefCounted,
+	p_session: Object,
 	p_chunk_size_cells: int,
 	p_loaded_chunks: Dictionary,
 	p_chunk_cache: RefCounted,
@@ -40,7 +40,7 @@ static func from_context(
 
 
 func configure(
-	p_session: RefCounted,
+	p_session: Object,
 	p_chunk_size_cells: int,
 	p_loaded_chunks: Dictionary,
 	p_chunk_cache: RefCounted,

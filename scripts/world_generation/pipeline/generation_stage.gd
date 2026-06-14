@@ -8,6 +8,7 @@ const CATEGORY_FEATURE := "feature"
 const CATEGORY_CONTINUITY := "continuity"
 const CATEGORY_CANDIDATE := "candidate"
 const CATEGORY_PROJECTION := "projection"
+const CATEGORY_FORMATION := "formation"
 const CATEGORY_VALIDATION := "validation"
 const CATEGORY_DIAGNOSTIC := "diagnostic"
 
@@ -120,6 +121,7 @@ static func supported_categories() -> PackedStringArray:
 		CATEGORY_CONTINUITY,
 		CATEGORY_CANDIDATE,
 		CATEGORY_PROJECTION,
+		CATEGORY_FORMATION,
 		CATEGORY_VALIDATION,
 		CATEGORY_DIAGNOSTIC,
 	])

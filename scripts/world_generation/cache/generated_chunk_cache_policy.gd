@@ -9,6 +9,7 @@ const GeneratedChunkCacheKeyScript := preload("res://scripts/world_generation/ca
 var require_world_definition_identity: bool = true
 var require_requested_product_set: bool = true
 var allow_legacy_key_fallback: bool = true
+var max_entries: int = 256
 var metadata: Dictionary = {}
 
 
@@ -24,14 +25,16 @@ static func from_parts(
 	p_require_world_definition_identity: bool = true,
 	p_require_requested_product_set: bool = true,
 	p_allow_legacy_key_fallback: bool = true,
-	p_metadata: Dictionary = {}
+	p_metadata: Dictionary = {},
+	p_max_entries: int = 256
 ) -> RefCounted:
 	var policy: RefCounted = load(SELF_SCRIPT_PATH).new()
 	return policy.configure(
 		p_require_world_definition_identity,
 		p_require_requested_product_set,
 		p_allow_legacy_key_fallback,
-		p_metadata
+		p_metadata,
+		p_max_entries
 	)
 
 
@@ -39,11 +42,13 @@ func configure(
 	p_require_world_definition_identity: bool = true,
 	p_require_requested_product_set: bool = true,
 	p_allow_legacy_key_fallback: bool = true,
-	p_metadata: Dictionary = {}
+	p_metadata: Dictionary = {},
+	p_max_entries: int = 256
 ) -> RefCounted:
 	require_world_definition_identity = p_require_world_definition_identity
 	require_requested_product_set = p_require_requested_product_set
 	allow_legacy_key_fallback = p_allow_legacy_key_fallback
+	max_entries = maxi(p_max_entries, 1)
 	metadata = p_metadata.duplicate(true)
 	return self
 
@@ -53,7 +58,8 @@ func duplicate_policy() -> RefCounted:
 		require_world_definition_identity,
 		require_requested_product_set,
 		allow_legacy_key_fallback,
-		metadata
+		metadata,
+		max_entries
 	)
 
 
@@ -88,6 +94,7 @@ func to_dictionary() -> Dictionary:
 		"require_world_definition_identity": require_world_definition_identity,
 		"require_requested_product_set": require_requested_product_set,
 		"allow_legacy_key_fallback": allow_legacy_key_fallback,
+		"max_entries": max_entries,
 		"metadata": metadata.duplicate(true),
 		"signature_hash": signature_hash(),
 	}
@@ -98,6 +105,7 @@ func signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, 1 if require_world_definition_identity else 0)
 	h = GeneratedChunkIdentity.mix_hash(h, 1 if require_requested_product_set else 0)
 	h = GeneratedChunkIdentity.mix_hash(h, 1 if allow_legacy_key_fallback else 0)
+	h = GeneratedChunkIdentity.mix_hash(h, max_entries)
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(metadata))
 	return h
 

@@ -1059,14 +1059,15 @@ Responsibilities:
 
 ---
 
-## FormationBuilder
+## Formation Builder Boundary
 
 Converts topology projections into formation products.
 
-Expected file:
+Current files:
 
 ```text
-scripts/world_generation/formation/formation_builder.gd
+scripts/world_generation/formation/formation_layer_builder.gd
+scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd
 ```
 
 Responsibilities:
@@ -1075,6 +1076,7 @@ Responsibilities:
 * build consumer-specific formation products
 * coordinate owned/halo data
 * report formation diagnostics
+* store canonical formation output in `GenerationWorkingSet.STORE_FORMATION`
 
 Rule:
 
@@ -1085,14 +1087,15 @@ Rendering and collision creation happen later.
 
 ---
 
-## OwnedHaloBuilder
+## Owned Halo Sampling Boundary
 
 Handles owned area and halo sampling bounds for formation.
 
-Expected file:
+Current files:
 
 ```text
-scripts/world_generation/formation/owned_halo_builder.gd
+scripts/world_generation/formation/formation_halo_sampler.gd
+scripts/world_generation/formation/formation_layer_builder.gd
 ```
 
 Responsibilities:

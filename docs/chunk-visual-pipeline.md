@@ -84,10 +84,28 @@ removes that root on `chunk_unloaded`. MultiMesh buckets are grouped by visual
 layer, base mesh key, and material variant so ground, water/depth, and
 solid/minable visuals do not overwrite each other at the same local corner.
 
+## Runtime Budgets
+
+`scripts/world_controller.gd` exposes `runtime_budget_contract()` through
+runtime diagnostics. The current budget contract is:
+
+```text
+visual backend: MultiMesh
+root lifecycle: chunk-resident roots with bounded pooling
+dirty update scope: one logic cell -> at most four visual corners
+full visual rebuild scope: chunk residency/backend rebuilds
+collision backend: one box CollisionShape3D per blocking policy cell
+```
+
+The budget is a runtime realization contract only. It does not change generated
+truth or make Godot nodes part of `GeneratedWorldChunk`.
+
 Validation:
 
 ```text
 godot --headless --path . --script tests/visual_plan_smoke.gd
 godot --headless --path . --script tests/multimesh_visual_smoke.gd
 godot --headless --path . --script tests/runtime_authored_visuals_smoke.gd
+godot --headless --path . --script tests/dirty_update_smoke.gd
+godot --headless --path . --script tests/runtime_diagnostics_smoke.gd
 ```

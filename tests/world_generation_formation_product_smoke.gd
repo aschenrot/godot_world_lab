@@ -3,6 +3,7 @@ extends SceneTree
 const ChunkProviderScript := preload("res://scripts/chunk_provider.gd")
 const FormationProductScript := preload("res://scripts/world_generation/formation/formation_product.gd")
 const FormationProductSetScript := preload("res://scripts/world_generation/formation/formation_product_set.gd")
+const LegacyFormationProductStageScript := preload("res://scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd")
 
 var failed: bool = false
 
@@ -10,6 +11,7 @@ var failed: bool = false
 func _initialize() -> void:
 	test_formation_product_from_legacy_layer_is_data_only()
 	test_formation_product_set_from_legacy_layers_is_deterministic()
+	test_pipeline_stage_emits_formation_product_set()
 	test_provider_generated_data_preserves_formation_compatibility_fields()
 	test_adapter_restores_formation_compatibility_from_product_set()
 	quit(1 if failed else 0)
@@ -112,12 +114,67 @@ func test_provider_generated_data_preserves_formation_compatibility_fields() -> 
 	provider.free()
 
 
+func test_pipeline_stage_emits_formation_product_set() -> void:
+	var provider: Node = ChunkProviderScript.new()
+	provider.use_chunk_cache = false
+	var session: RefCounted = provider._world_generation_session()
+	var working_set: GenerationWorkingSet = session.run_working_set(
+		Vector3i(0, 0, 0),
+		{"formation_product_smoke": true}
+	)
+	var world_chunk := GeneratedWorldChunk.from_working_set(working_set)
+	var formation_store: Dictionary = working_set.formation_products.get(
+		GeneratedWorldChunk.FORMATION_PRODUCT_SET_KEY,
+		{}
+	)
+	var formation_product_ids: PackedStringArray = world_chunk.formation_products.get(
+		"product_ids",
+		PackedStringArray()
+	)
+	var formation_stage_result: Dictionary = world_chunk.stage_results[1] \
+		if world_chunk.stage_results.size() > 1 else {}
+
+	_assert(not working_set.has_validation_errors(), "formation product stage run has no validation errors")
+	_assert(world_chunk.stage_results.size() == 2, "GeneratedWorldChunk reports topology and formation stage results")
+	_assert(
+		working_set.generated_products.has(GeneratedWorldChunk.FORMATION_PRODUCT_SET_KEY),
+		"formation product stage stores FormationProductSet as generated product"
+	)
+	_assert(
+		formation_store.get("product_type", "") == FormationProductSetScript.PRODUCT_TYPE,
+		"formation product stage stores FormationProductSet in formation store"
+	)
+	_assert(
+		world_chunk.formation_products.get("product_type", "") == FormationProductSetScript.PRODUCT_TYPE,
+		"GeneratedWorldChunk finalizes FormationProductSet from pipeline"
+	)
+	_assert(
+		formation_product_ids == PackedStringArray([
+			"cliff_formation",
+			"ground_formation",
+			"solid_formation",
+			"water_formation",
+		]),
+		"formation product stage emits requested default formation products"
+	)
+	_assert(
+		formation_stage_result.get("stage_id", "") == LegacyFormationProductStageScript.STAGE_ID,
+		"GeneratedWorldChunk reports formation stage result"
+	)
+	_assert(
+		formation_stage_result.get("stage_category", "") == GenerationStage.CATEGORY_FORMATION,
+		"formation stage result uses formation category"
+	)
+	provider.free()
+
+
 func test_adapter_restores_formation_compatibility_from_product_set() -> void:
 	var formation_layers := _sample_formation_layers()
 	var formation_product_set: Dictionary = FormationProductSetScript.from_legacy_formation_layers(
 		formation_layers,
 		_sample_bounds()
 	).to_dictionary()
+	formation_product_set.erase("formation_layers")
 	var world_chunk := GeneratedWorldChunk.new().configure(
 		null,
 		_sample_bounds(),

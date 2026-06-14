@@ -5,6 +5,8 @@ const GeneratedChunkCachePolicyScript := preload("res://scripts/world_generation
 
 var records: Dictionary = {}
 var cache_policy: RefCounted = GeneratedChunkCachePolicyScript.default_policy()
+var record_access_order: Dictionary = {}
+var access_counter: int = 0
 
 
 func has_identity(identity: GeneratedChunkIdentity) -> bool:
@@ -14,7 +16,10 @@ func has_identity(identity: GeneratedChunkIdentity) -> bool:
 func load_generation_result_for_identity(identity: GeneratedChunkIdentity) -> Dictionary:
 	if not _can_use_identity(identity):
 		return {}
-	var record: Dictionary = records.get(_identity_cache_key(identity), {})
+	var cache_key: String = _identity_cache_key(identity)
+	var record: Dictionary = records.get(cache_key, {})
+	if not record.is_empty():
+		_touch_record(cache_key)
 	return _generation_result_from_record(record)
 
 
@@ -25,7 +30,8 @@ func store_generation_result_for_identity(
 	if not _can_use_identity(identity):
 		return
 	var cache_key: RefCounted = GeneratedChunkCacheKeyScript.from_identity(identity)
-	records[cache_key.cache_key()] = {
+	var cache_key_string: String = cache_key.cache_key()
+	records[cache_key_string] = {
 		"cache_key": cache_key.to_dictionary(),
 		"identity": identity.to_dictionary(),
 		"chunk_coord": identity.chunk_coord,
@@ -37,6 +43,8 @@ func store_generation_result_for_identity(
 		"logic_grid": generation_result.get("logic_grid", []).duplicate(true),
 		"generation_result": generation_result.duplicate(true),
 	}
+	_touch_record(cache_key_string)
+	_evict_over_limit()
 
 
 func has_chunk(chunk_coord: Vector3i, generator_version: int, generation_settings_hash: int) -> bool:
@@ -44,7 +52,10 @@ func has_chunk(chunk_coord: Vector3i, generator_version: int, generation_setting
 
 
 func load_chunk(chunk_coord: Vector3i, generator_version: int, generation_settings_hash: int) -> Array:
-	var record: Dictionary = records.get(_cache_key(chunk_coord, generator_version, generation_settings_hash), {})
+	var cache_key: String = _cache_key(chunk_coord, generator_version, generation_settings_hash)
+	var record: Dictionary = records.get(cache_key, {})
+	if not record.is_empty():
+		_touch_record(cache_key)
 	var logic_grid: Array = record.get("logic_grid", [])
 	return logic_grid.duplicate(true)
 
@@ -54,7 +65,10 @@ func load_generation_result(
 	generator_version: int,
 	generation_settings_hash: int
 ) -> Dictionary:
-	var record: Dictionary = records.get(_cache_key(chunk_coord, generator_version, generation_settings_hash), {})
+	var cache_key: String = _cache_key(chunk_coord, generator_version, generation_settings_hash)
+	var record: Dictionary = records.get(cache_key, {})
+	if not record.is_empty():
+		_touch_record(cache_key)
 	return _generation_result_from_record(record)
 
 
@@ -78,7 +92,8 @@ func store_generation_result(
 	generation_settings_hash: int,
 	generation_result: Dictionary
 ) -> void:
-	records[_cache_key(chunk_coord, generator_version, generation_settings_hash)] = {
+	var cache_key: String = _cache_key(chunk_coord, generator_version, generation_settings_hash)
+	records[cache_key] = {
 		"chunk_coord": chunk_coord,
 		"generator_version": generator_version,
 		"generation_settings_hash": generation_settings_hash,
@@ -86,6 +101,8 @@ func store_generation_result(
 		"logic_grid": generation_result.get("logic_grid", []).duplicate(true),
 		"generation_result": generation_result.duplicate(true),
 	}
+	_touch_record(cache_key)
+	_evict_over_limit()
 
 
 func entry_count() -> int:
@@ -94,6 +111,8 @@ func entry_count() -> int:
 
 func clear() -> void:
 	records.clear()
+	record_access_order.clear()
+	access_counter = 0
 
 
 func _can_use_identity(identity: GeneratedChunkIdentity) -> bool:
@@ -110,6 +129,40 @@ func _generation_result_from_record(record: Dictionary) -> Dictionary:
 	return {
 		"logic_grid": record.get("logic_grid", []).duplicate(true),
 	}
+
+
+func _touch_record(cache_key: String) -> void:
+	if not records.has(cache_key):
+		return
+	access_counter += 1
+	record_access_order[cache_key] = access_counter
+
+
+func _evict_over_limit() -> void:
+	var limit := int(cache_policy.get("max_entries")) if cache_policy != null else 0
+	if limit <= 0:
+		clear()
+		return
+	while records.size() > limit:
+		var oldest_key: String = _oldest_record_key()
+		if oldest_key.is_empty():
+			return
+		records.erase(oldest_key)
+		record_access_order.erase(oldest_key)
+
+
+func _oldest_record_key() -> String:
+	var oldest_key: String = ""
+	var oldest_order: int = 2147483647
+	var keys := records.keys()
+	keys.sort()
+	for key in keys:
+		var cache_key := String(key)
+		var order := int(record_access_order.get(cache_key, 0))
+		if order < oldest_order:
+			oldest_order = order
+			oldest_key = cache_key
+	return oldest_key
 
 
 func _cache_key(chunk_coord: Vector3i, generator_version: int, generation_settings_hash: int) -> String:

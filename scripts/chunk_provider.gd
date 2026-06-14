@@ -30,6 +30,7 @@ const WorldGenerationSessionScript := preload("res://scripts/world_generation/ru
 @export var async_provider_enabled: bool = false
 @export var provider_delay_frames: int = 0
 @export var use_chunk_cache: bool = false
+@export var formation_sample_cache_max_entries: int = 64
 
 var streaming_node: Node
 var pending_requests: Dictionary = {}
@@ -93,6 +94,17 @@ func cache_entry_count() -> int:
 
 func formation_sample_cache_count() -> int:
 	return formation_sample_cache.size()
+
+
+func formation_sampling_context() -> Dictionary:
+	if use_chunk_cache:
+		_ensure_cache()
+	return {
+		"loaded_chunks": loaded_chunks,
+		"chunk_cache": chunk_cache,
+		"use_chunk_cache": use_chunk_cache,
+		"sample_cache": formation_sample_cache,
+	}
 
 
 func get_loaded_chunk_data(chunk_coord: Vector3i) -> Dictionary:
@@ -160,9 +172,14 @@ func _complete_request(request_id: int) -> void:
 
 func _load_chunk_content(chunk_coord: Vector3i) -> void:
 	var cache_identity := _generated_chunk_identity_for_chunk(chunk_coord)
-	var generation_result := _load_or_generate_chunk_result(chunk_coord, cache_identity)
-	var logic_grid := GeneratedChunkDataAdapter.logic_grid_from_generation_result(generation_result, false)
-	var generated_chunk_data := make_generated_chunk_data(chunk_coord, logic_grid, generation_result, false)
+	var world_chunk := _load_or_generate_world_chunk(chunk_coord, cache_identity)
+	var generated_chunk_data := GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
+		world_chunk,
+		{},
+		generation_diagnostics(),
+		false
+	)
+	_prune_formation_sample_cache()
 	loaded_chunks[_chunk_key(chunk_coord)] = {
 		"coord": chunk_coord,
 		"generator_version": cache_identity.world_definition_version,
@@ -175,19 +192,38 @@ func _load_chunk_content(chunk_coord: Vector3i) -> void:
 	}
 
 
-func _load_or_generate_chunk_result(chunk_coord: Vector3i, cache_identity: GeneratedChunkIdentity) -> Dictionary:
+func _load_or_generate_world_chunk(
+	chunk_coord: Vector3i,
+	cache_identity: GeneratedChunkIdentity
+) -> GeneratedWorldChunk:
 	if use_chunk_cache:
 		_ensure_cache()
 		if chunk_cache.has_identity(cache_identity):
 			cache_hit_count += 1
-			return chunk_cache.load_generation_result_for_identity(cache_identity)
+			var cached_result: Dictionary = chunk_cache.load_generation_result_for_identity(cache_identity)
+			return _world_chunk_from_compatibility_generation_result(
+				chunk_coord,
+				cached_result,
+				_formation_product_set_for_generation_result(chunk_coord, cached_result),
+				false
+			)
 
 		cache_miss_count += 1
-		var generated := _generate_chunk_generation_result_internal(chunk_coord)
-		chunk_cache.store_generation_result_for_identity(cache_identity, generated)
-		return generated
+		var generated_world_chunk := _generate_world_chunk_internal(chunk_coord)
+		chunk_cache.store_generation_result_for_identity(
+			cache_identity,
+			GeneratedChunkDataAdapter.generation_result_from_world_chunk(generated_world_chunk, false)
+		)
+		return generated_world_chunk
 
-	return _generate_chunk_generation_result_internal(chunk_coord)
+	return _generate_world_chunk_internal(chunk_coord)
+
+
+func _load_or_generate_chunk_result(chunk_coord: Vector3i, cache_identity: GeneratedChunkIdentity) -> Dictionary:
+	return GeneratedChunkDataAdapter.generation_result_from_world_chunk(
+		_load_or_generate_world_chunk(chunk_coord, cache_identity),
+		false
+	)
 
 
 func _ensure_cache() -> void:
@@ -202,21 +238,32 @@ func generate_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
 
 
 func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
-	return _world_generation_session().generate_chunk_generation_result(
+	var generation_result: Dictionary = _world_generation_session().generate_chunk_generation_result(
 		chunk_coord,
 		true,
 		true,
 		{"provider": "chunk_provider", "diagnostics_enabled": true}
 	)
+	_prune_formation_sample_cache()
+	return generation_result
 
 
 func _generate_chunk_generation_result_internal(chunk_coord: Vector3i) -> Dictionary:
-	return _world_generation_session().generate_chunk_generation_result(
+	return GeneratedChunkDataAdapter.generation_result_from_world_chunk(
+		_generate_world_chunk_internal(chunk_coord),
+		false
+	)
+
+
+func _generate_world_chunk_internal(chunk_coord: Vector3i) -> GeneratedWorldChunk:
+	var world_chunk: GeneratedWorldChunk = _world_generation_session().generate_world_chunk(
 		chunk_coord,
 		false,
 		false,
 		{"provider": "chunk_provider"}
 	)
+	_prune_formation_sample_cache()
+	return world_chunk
 
 
 func _generate_legacy_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
@@ -272,12 +319,14 @@ func make_generated_chunk_data(
 		formation_product_set,
 		copy_output
 	)
-	return GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
+	var generated_chunk_data := GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
 		world_chunk,
 		{},
 		generation_diagnostics(),
 		copy_output
 	)
+	_prune_formation_sample_cache()
+	return generated_chunk_data
 
 
 func make_formation_layers(chunk_coord: Vector3i, topology_layers: Dictionary) -> Dictionary:
@@ -383,15 +432,31 @@ func _world_chunk_from_compatibility_generation_result(
 	copy_inputs: bool = true
 ) -> GeneratedWorldChunk:
 	var identity := _generated_chunk_identity_for_chunk(chunk_coord)
-	var world_chunk := GeneratedWorldChunk.from_legacy_generation_result(
+	return GeneratedWorldChunk.from_legacy_generation_result(
 		identity,
 		_world_generation_bounds_for_chunk(chunk_coord),
 		generation_result,
 		generation_result.get("diagnostics", {}),
+		formation_product_set,
 		copy_inputs
 	)
-	world_chunk.formation_products = formation_product_set.duplicate(true) if copy_inputs else formation_product_set
-	return world_chunk
+
+
+func _formation_product_set_for_generation_result(
+	chunk_coord: Vector3i,
+	generation_result: Dictionary
+) -> Dictionary:
+	var normalized_result := GeneratedChunkDataAdapter.normalize_generation_result(
+		generation_result,
+		false
+	)
+	var topology_layers: Dictionary = normalized_result.get("topology_layers", {})
+	if topology_layers.is_empty():
+		return {}
+	return GeneratedChunkDataAdapter.formation_product_set_from_formation_layers(
+		make_formation_layers(chunk_coord, topology_layers),
+		_world_generation_bounds_for_chunk(chunk_coord)
+	)
 
 
 func _world_generation_bounds_for_chunk(chunk_coord: Vector3i) -> Dictionary:
@@ -424,6 +489,18 @@ func _world_generation_session() -> RefCounted:
 		_world_generation_session_hash = current_hash
 		formation_sample_cache.clear()
 	return _world_generation_session_instance
+
+
+func _prune_formation_sample_cache() -> void:
+	var limit := maxi(formation_sample_cache_max_entries, 0)
+	if limit == 0:
+		formation_sample_cache.clear()
+		return
+	var keys := formation_sample_cache.keys()
+	keys.sort()
+	while keys.size() > limit:
+		var cache_key := String(keys.pop_front())
+		formation_sample_cache.erase(cache_key)
 
 
 func _formation_halo_sampler() -> RefCounted:

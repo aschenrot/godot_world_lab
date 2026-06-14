@@ -10,8 +10,10 @@ var failed: bool = false
 func _initialize() -> void:
 	test_cache_key_includes_world_definition_identity()
 	test_chunk_cache_identity_prevents_product_and_definition_collisions()
+	test_chunk_cache_evicts_oldest_record_when_entry_limit_is_exceeded()
 	test_cache_policy_rejects_incomplete_identity()
 	test_provider_cache_records_generated_identity()
+	test_provider_formation_sample_cache_is_bounded()
 	quit(1 if failed else 0)
 
 
@@ -105,6 +107,25 @@ func test_chunk_cache_identity_prevents_product_and_definition_collisions() -> v
 	)
 
 
+func test_chunk_cache_evicts_oldest_record_when_entry_limit_is_exceeded() -> void:
+	var Cache := load("res://scripts/chunk_cache.gd")
+	var cache: RefCounted = Cache.new()
+	cache.cache_policy = GeneratedChunkCachePolicyScript.from_parts(true, true, true, {}, 2)
+	var identity_a := _identity("cache_world", 3, 111, 222, Vector3i(0, 0, 0), PackedStringArray(["generated_world_chunk"]))
+	var identity_b := _identity("cache_world", 3, 111, 222, Vector3i(1, 0, 0), PackedStringArray(["generated_world_chunk"]))
+	var identity_c := _identity("cache_world", 3, 111, 222, Vector3i(2, 0, 0), PackedStringArray(["generated_world_chunk"]))
+
+	cache.store_generation_result_for_identity(identity_a, _sample_generation_result("identity_a"))
+	cache.store_generation_result_for_identity(identity_b, _sample_generation_result("identity_b"))
+	cache.load_generation_result_for_identity(identity_a)
+	cache.store_generation_result_for_identity(identity_c, _sample_generation_result("identity_c"))
+
+	_assert(cache.entry_count() == 2, "ChunkCache respects policy max_entries")
+	_assert(cache.has_identity(identity_a), "ChunkCache keeps recently accessed identity")
+	_assert(not cache.has_identity(identity_b), "ChunkCache evicts oldest identity")
+	_assert(cache.has_identity(identity_c), "ChunkCache stores newest identity")
+
+
 func test_cache_policy_rejects_incomplete_identity() -> void:
 	var strict_policy: RefCounted = GeneratedChunkCachePolicyScript.strict_policy()
 	var incomplete_identity := _identity(
@@ -166,6 +187,25 @@ func test_provider_cache_records_generated_identity() -> void:
 	_assert(provider.cache_miss_count == 2, "provider world definition change misses cache")
 	_assert(provider.cache_entry_count() == 2, "provider keeps distinct cache entries for distinct world identities")
 
+	provider.free()
+
+
+func test_provider_formation_sample_cache_is_bounded() -> void:
+	var provider: Node = ChunkProviderScript.new()
+	provider.use_chunk_cache = false
+	provider.formation_sample_cache_max_entries = 2
+	provider.chunk_size_cells = 16
+	provider.generator_version = 7
+	provider.world_seed = 42
+	provider.wall_threshold_percent = 34
+	provider.debug_force_chunk_border = false
+
+	provider._load_chunk_content(Vector3i(0, 0, 0))
+
+	_assert(
+		provider.formation_sample_cache_count() <= 2,
+		"provider formation sample cache respects configured max entries"
+	)
 	provider.free()
 
 

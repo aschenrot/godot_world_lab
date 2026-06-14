@@ -28,6 +28,19 @@ root when `enable_collision_prototype` is true. Existing unload/pooling cleanup
 removes collision with the chunk root, so collision nodes do not outlive active
 visual roots.
 
+## Runtime Budget
+
+The current collision backend is intentionally simple and bounded:
+
+```text
+one StaticBody3D per resident chunk
+one box CollisionShape3D per blocking policy cell
+max shapes per chunk = chunk_size_cells * chunk_size_cells
+```
+
+`world_controller.runtime_budget_contract()` reports that ceiling in runtime
+diagnostics. This is a Godot realization budget, not generation truth.
+
 ## Critical Review
 
 - Ownership: passed. Collision code is entirely in `godot_world_lab`.
@@ -43,4 +56,5 @@ visual roots.
 
 ```sh
 godot --headless --path . --script tests/chunk_collision_smoke.gd
+godot --headless --path . --script tests/runtime_diagnostics_smoke.gd
 ```

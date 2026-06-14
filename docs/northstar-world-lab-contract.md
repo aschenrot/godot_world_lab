@@ -48,6 +48,11 @@ created.
   - `formation_layers` with owned-halo formation per topology layer
   - `logic_grid` as a temporary compatibility alias for
     `topology_layers["solid"]`
+- `GeneratedWorldChunk`
+  - canonical data-only generation product
+  - `TopologyProjectionSet` for requested topology projections
+  - `FormationProductSet` for requested owned-halo formation products
+  - generated-truth signature independent of diagnostics/report verbosity
 - `ChunkVisualPlan`
   - `chunk_coord`
   - `visual_layers`
@@ -76,6 +81,7 @@ Instantiated reality is live Godot runtime state.
 - Loaded `GeneratedChunkData` records in the provider.
 - `ChunkRoot` `Node3D` instances.
 - `MultiMeshInstance3D` buckets built from `ChunkInstantiationPlan`.
+- Runtime budget diagnostics from `WorldController.runtime_budget_contract()`.
 
 ## Simulated Reality
 

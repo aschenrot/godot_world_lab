@@ -1,6 +1,7 @@
 extends SceneTree
 
 const WorldDefinitionProfileLibraryScript := preload("res://scripts/world_generation/definition/world_definition_profile_library.gd")
+const LegacyFormationProductStageScript := preload("res://scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd")
 
 var failed: bool = false
 
@@ -116,8 +117,15 @@ func test_profiles_run_through_same_pipeline_product_and_diagnostics_contracts()
 		"navigation profile chunk carries navigation definition id"
 	)
 	_assert(
-		surface_chunk.stage_results[0].get("stage_id", "") == navigation_chunk.stage_results[0].get("stage_id", ""),
+		_stage_ids(surface_chunk) == _stage_ids(navigation_chunk),
 		"profile chunks use the same pipeline stage interface"
+	)
+	_assert(
+		_stage_ids(surface_chunk) == PackedStringArray([
+			LegacyChunkGenerationStage.STAGE_ID,
+			LegacyFormationProductStageScript.STAGE_ID,
+		]),
+		"profile chunks run topology and formation stages"
 	)
 	_assert(
 		surface_chunk.to_dictionary().get("product_type", "") == navigation_chunk.to_dictionary().get("product_type", ""),
@@ -134,6 +142,24 @@ func test_profiles_run_through_same_pipeline_product_and_diagnostics_contracts()
 	_assert(
 		surface_chunk.identity.world_definition_hash != navigation_chunk.identity.world_definition_hash,
 		"profile chunk identities differ by definition hash"
+	)
+	_assert(
+		_product_ids(surface_chunk.topology_projection_set, "projection_ids")
+		== PackedStringArray(["cliff", "ground", "solid", "water"]),
+		"surface profile emits requested topology projection set"
+	)
+	_assert(
+		_product_ids(navigation_chunk.topology_projection_set, "projection_ids") == PackedStringArray(["solid"]),
+		"navigation profile emits only requested topology projection"
+	)
+	_assert(
+		_product_ids(surface_chunk.formation_products, "product_ids")
+		== PackedStringArray(["cliff_formation", "ground_formation", "solid_formation", "water_formation"]),
+		"surface profile emits requested formation product set"
+	)
+	_assert(
+		_product_ids(navigation_chunk.formation_products, "product_ids") == PackedStringArray(["solid_formation"]),
+		"navigation profile emits only requested formation product"
 	)
 
 
@@ -152,7 +178,8 @@ func _run_definition_chunk(definition: WorldDefinition, chunk_coord: Vector3i) -
 	)
 	var context := GenerationContext.from_snapshot_and_request(snapshot, request)
 	var pipeline := GenerationPipeline.from_stages([
-		LegacyChunkGenerationStage.from_provider(provider)
+		LegacyChunkGenerationStage.from_provider(provider),
+		LegacyFormationProductStageScript.from_session(provider)
 	])
 	var working_set := pipeline.run(snapshot, context)
 	provider.free()
@@ -167,6 +194,34 @@ class ProfileProvider:
 
 	func _generate_legacy_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
 		return LegacyGeneratorScript.from_settings(definition.generation_settings).generate_chunk_generation_result(chunk_coord)
+
+	func identity_for_chunk(
+		chunk_coord: Vector3i,
+		requested_products: PackedStringArray = PackedStringArray()
+	) -> GeneratedChunkIdentity:
+		return definition.compile_snapshot().identity_for_chunk(chunk_coord, requested_products)
+
+	func generate_topology_layers_only(chunk_coord: Vector3i) -> Dictionary:
+		return _generate_legacy_chunk_generation_result(chunk_coord).get("topology_layers", {})
+
+	func effective_chunk_size_cells() -> int:
+		return int(definition.generation_settings.get("effective_chunk_size_cells", 16))
+
+
+func _stage_ids(world_chunk: GeneratedWorldChunk) -> PackedStringArray:
+	var stage_ids := PackedStringArray()
+	for stage_result in world_chunk.stage_results:
+		if typeof(stage_result) != TYPE_DICTIONARY:
+			continue
+		var stage_result_dictionary: Dictionary = stage_result
+		stage_ids.append(String(stage_result_dictionary.get("stage_id", "")))
+	return stage_ids
+
+
+func _product_ids(product_set: Dictionary, ids_key: String) -> PackedStringArray:
+	var ids: PackedStringArray = product_set.get(ids_key, PackedStringArray())
+	ids.sort()
+	return ids
 
 
 func _variant_signature(value: Variant) -> int:

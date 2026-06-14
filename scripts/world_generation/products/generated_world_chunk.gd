@@ -9,6 +9,7 @@ const WORLD_FEATURE_SET_KEY := "world_feature_set"
 const CONTINUITY_FACT_SET_KEY := "continuity_fact_set"
 const PLACEMENT_CANDIDATE_SET_KEY := "placement_candidate_set"
 const TOPOLOGY_PROJECTION_SET_KEY := "topology_projection_set"
+const FORMATION_PRODUCT_SET_KEY := "formation_product_set"
 const WorldFeatureSetScript := preload("res://scripts/world_generation/features/world_feature_set.gd")
 const ContinuityFactSetScript := preload("res://scripts/world_generation/continuity/continuity_fact_set.gd")
 const PlacementCandidateSetScript := preload("res://scripts/world_generation/placement/placement_candidate_set.gd")
@@ -55,6 +56,10 @@ static func from_working_set(
 		}
 
 	var generated_products: Dictionary = _copy_dictionary(working_set.generated_products, copy_inputs)
+	var formation_product_set: Dictionary = generated_products.get(
+		FORMATION_PRODUCT_SET_KEY,
+		working_set.formation_products.get(FORMATION_PRODUCT_SET_KEY, working_set.formation_products)
+	)
 	return chunk.configure(
 		next_identity,
 		next_bounds,
@@ -64,7 +69,7 @@ static func from_working_set(
 		working_set.placement_candidates,
 		working_set.topology_projections,
 		generated_products.get(TOPOLOGY_PROJECTION_SET_KEY, {}),
-		working_set.formation_products,
+		formation_product_set,
 		working_set.diagnostics,
 		working_set.stage_report() if include_stage_results else [],
 		working_set.validation_issues,
@@ -78,6 +83,7 @@ static func from_legacy_generation_result(
 	p_bounds: Dictionary,
 	generation_result: Dictionary,
 	diagnostics: Dictionary = {},
+	p_formation_products: Dictionary = {},
 	copy_inputs: bool = true
 ) -> GeneratedWorldChunk:
 	var internal_result := GeneratedChunkDataAdapter.generation_result_without_logic_grid_alias(
@@ -115,7 +121,7 @@ static func from_legacy_generation_result(
 		{PLACEMENT_CANDIDATE_SET_KEY: placement_candidate_set},
 		topology_layers,
 		projection_set,
-		{},
+		p_formation_products,
 		diagnostics,
 		[],
 		PackedStringArray(),
@@ -215,10 +221,15 @@ func to_dictionary() -> Dictionary:
 		"validation_issues": validation_issues.duplicate(),
 		"legacy_generation_result": legacy_generation_result.duplicate(true),
 		"signature_hash": signature_hash(),
+		"report_signature_hash": report_signature_hash(),
 	}
 
 
 func signature_hash() -> int:
+	return generated_truth_signature_hash()
+
+
+func generated_truth_signature_hash() -> int:
 	var h := GeneratedChunkIdentity.stable_hash_string("GeneratedWorldChunk:v%s" % SCHEMA_VERSION)
 	h = GeneratedChunkIdentity.mix_hash(h, identity.signature_hash() if identity != null else 0)
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(bounds))
@@ -226,12 +237,17 @@ func signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(world_features))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(continuity_facts))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(placement_candidates))
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(topology_projections))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(topology_projection_set))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(formation_products))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(validation_issues))
+	return h
+
+
+func report_signature_hash() -> int:
+	var h := generated_truth_signature_hash()
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(topology_projections))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(generation_diagnostics))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(stage_results))
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(validation_issues))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(legacy_generation_result))
 	return h
 

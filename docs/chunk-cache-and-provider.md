@@ -51,8 +51,16 @@ renderer resources
 
 Changing `generator_version` changes the cache key and forces regeneration.
 
+The cache is bounded by `GeneratedChunkCachePolicy.max_entries` and evicts the
+least-recently loaded/stored record when a store would exceed that limit. The
+default policy keeps 256 entries. `scripts/chunk_provider.gd` also bounds
+`formation_sample_cache` through `formation_sample_cache_max_entries` and
+prunes it after generation/load paths; settings-hash changes still clear the
+sample cache immediately.
+
 Validation:
 
 ```text
 godot --headless --path . --script tests/async_cache_smoke.gd
+godot --headless --path . --script tests/world_generation_cache_identity_smoke.gd
 ```

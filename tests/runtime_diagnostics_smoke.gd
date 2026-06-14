@@ -59,6 +59,7 @@ func _assert_diagnostics(label: String) -> void:
 		"catalog",
 		"last_visual_plan",
 		"last_instantiation_plan",
+		"runtime_budgets",
 		"visual_roots_have_matching_metadata",
 	]
 	for key in required_keys:
@@ -70,6 +71,20 @@ func _assert_diagnostics(label: String) -> void:
 	_assert(int(diagnostics["pending_requests"]) == 0, "%s pending requests are bounded/drained" % label)
 	_assert(int(diagnostics["generation_settings_hash"]) != 0, "%s has generation settings hash" % label)
 	_assert(bool(diagnostics["visual_roots_have_matching_metadata"]), "%s metadata matches roots" % label)
+
+	var runtime_budgets: Dictionary = diagnostics["runtime_budgets"]
+	_assert(runtime_budgets.get("product_type", "") == "RuntimeRealizationBudget", "%s reports runtime budget contract" % label)
+	_assert(runtime_budgets.get("visual_backend", "") == "multimesh", "%s budget records visual backend" % label)
+	_assert(int(runtime_budgets.get("dirty_cell_max_visual_corners", 0)) == 4, "%s budget records dirty-cell scope" % label)
+	_assert(
+		int(runtime_budgets.get("max_collision_shapes_per_chunk", 0)) * int(diagnostics["visual_roots"])
+		>= int(diagnostics["collision_shapes"]),
+		"%s collision shapes stay within per-chunk budget ceiling" % label
+	)
+	_assert(
+		int(runtime_budgets.get("max_pooled_visual_roots", -1)) >= int(diagnostics["pooled_roots"]),
+		"%s pooled roots stay within configured budget" % label
+	)
 
 
 func _assert(condition: bool, message: String) -> void:

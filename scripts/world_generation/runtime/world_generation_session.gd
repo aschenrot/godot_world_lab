@@ -10,6 +10,7 @@ const LAYER_CLIFF := "cliff"
 const TOPOLOGY_LAYER_ORDER := [LAYER_GROUND, LAYER_WATER, LAYER_SOLID, LAYER_CLIFF]
 const SELF_SCRIPT_PATH := "res://scripts/world_generation/runtime/world_generation_session.gd"
 const LegacyChunkGeneratorScript := preload("res://scripts/world_generation/legacy/legacy_chunk_generator.gd")
+const LegacyFormationProductStageScript := preload("res://scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd")
 
 var settings: Dictionary = {}
 var settings_hash: int = 0
@@ -50,7 +51,10 @@ func world_definition() -> WorldDefinition:
 	definition.world_seed = _int_setting("world_seed", 1337)
 	definition.domain_descriptor = WorldSpace.DOMAIN_CELL_GRID_2D
 	definition.generation_settings = settings.duplicate(true)
-	definition.stage_ids = PackedStringArray([LegacyChunkGenerationStage.STAGE_ID])
+	definition.stage_ids = PackedStringArray([
+		LegacyChunkGenerationStage.STAGE_ID,
+		LegacyFormationProductStageScript.STAGE_ID,
+	])
 	definition.layer_schema_ids = PackedStringArray([
 		LAYER_GROUND,
 		LAYER_WATER,
@@ -123,7 +127,8 @@ func pipeline() -> GenerationPipeline:
 	if not _pipeline_cache.has(settings_hash):
 		var stage_provider: Object = legacy_stage_provider if legacy_stage_provider != null else self
 		_pipeline_cache[settings_hash] = GenerationPipeline.from_stages([
-			LegacyChunkGenerationStage.from_provider(stage_provider)
+			LegacyChunkGenerationStage.from_provider(stage_provider),
+			LegacyFormationProductStageScript.from_session(self)
 		])
 	return _pipeline_cache[settings_hash]
 
@@ -185,6 +190,19 @@ func generate_topology_layers_only(chunk_coord: Vector3i) -> Dictionary:
 		return legacy_chunk_generator().generate_topology_layers_only(chunk_coord)
 	var result: Dictionary = legacy_chunk_generator().generate_chunk_generation_result(chunk_coord)
 	return result.get("topology_layers", {})
+
+
+func formation_sampling_context() -> Dictionary:
+	if legacy_stage_provider != null and legacy_stage_provider.has_method("formation_sampling_context"):
+		var context_data: Variant = legacy_stage_provider.call("formation_sampling_context")
+		if typeof(context_data) == TYPE_DICTIONARY:
+			return context_data
+	return {
+		"loaded_chunks": {},
+		"chunk_cache": null,
+		"use_chunk_cache": false,
+		"sample_cache": {},
+	}
 
 
 func bounds_for_chunk(chunk_coord: Vector3i) -> Dictionary:

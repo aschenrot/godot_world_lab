@@ -5,6 +5,7 @@ class_name WorldDefinitionProfileLibrary
 const PROFILE_SURFACE_MATERIAL := "surface_material_chunk"
 const PROFILE_NAVIGATION_SURVEY := "navigation_topology_survey"
 const SELF_SCRIPT_PATH := "res://scripts/world_generation/definition/world_definition_profile_library.gd"
+const LegacyFormationProductStageScript := preload("res://scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd")
 
 
 static func default_generation_settings() -> Dictionary:
@@ -125,7 +126,11 @@ static func proof_summary() -> Dictionary:
 		"navigation_survey_definition_hash": navigation_definition.definition_hash(),
 		"surface_material_generation_settings_hash": surface_definition.generation_settings_hash(),
 		"navigation_survey_generation_settings_hash": navigation_definition.generation_settings_hash(),
-		"shared_pipeline_interface": LegacyChunkGenerationStage.STAGE_ID,
+		"shared_pipeline_interface": "generation_pipeline",
+		"shared_pipeline_stage_ids": PackedStringArray([
+			LegacyChunkGenerationStage.STAGE_ID,
+			LegacyFormationProductStageScript.STAGE_ID,
+		]),
 		"shared_product_model": GeneratedChunkIdentity.PRODUCT_GENERATED_WORLD_CHUNK,
 	}
 
@@ -137,5 +142,8 @@ static func _base_definition(profile_id: String) -> WorldDefinition:
 	definition.world_seed = int(default_generation_settings().get("world_seed", 2026))
 	definition.domain_descriptor = WorldSpace.DOMAIN_CELL_GRID_2D
 	definition.generation_settings = default_generation_settings()
-	definition.stage_ids = PackedStringArray([LegacyChunkGenerationStage.STAGE_ID])
+	definition.stage_ids = PackedStringArray([
+		LegacyChunkGenerationStage.STAGE_ID,
+		LegacyFormationProductStageScript.STAGE_ID,
+	])
 	return definition
