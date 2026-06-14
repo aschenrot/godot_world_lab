@@ -4,60 +4,60 @@
   "headless_source_gltf": "res://assets/source/tiles/dual_grid_tiles_source.gltf",
   "normalized_glb": "res://assets/tiles/dual_grid_tiles.glb",
   "base_meshes": [
-    "corner",
-    "edge",
-    "t",
-    "diagonal",
-    "full",
+	"corner",
+	"edge",
+	"t",
+	"diagonal",
+	"full",
     "debug"
   ],
   "authored_name_map": {
-    "corner": "corner",
-    "edge": "edge",
-    "T": "t",
-    "diagonal_corner": "diagonal",
-    "full": "full"
+	"corner": "corner",
+	"edge": "edge",
+	"T": "t",
+	"diagonal_corner": "diagonal",
+	"full": "full"
   },
   "generated_normalized_meshes": {
-    "debug": "Generated during normalization as the lab fallback mesh when the authored kit omits a debug mesh."
+	"debug": "Generated during normalization as the lab fallback mesh when the authored kit omits a debug mesh."
   },
   "mesh_transform_contracts": {
-    "corner": {
-      "canonical_rotation_degrees_cw": 0,
-      "rotation_correction_degrees_cw": 0,
-      "flip_x": false,
-      "flip_z": false
-    },
-    "edge": {
-      "canonical_rotation_degrees_cw": 0,
-      "rotation_correction_degrees_cw": 0,
-      "flip_x": false,
-      "flip_z": false
-    },
-    "t": {
-      "canonical_rotation_degrees_cw": 0,
-      "rotation_correction_degrees_cw": 0,
-      "flip_x": false,
-      "flip_z": false
-    },
-    "diagonal": {
-      "canonical_rotation_degrees_cw": 0,
-      "rotation_correction_degrees_cw": 90,
-      "flip_x": false,
-      "flip_z": false
-    },
-    "full": {
-      "canonical_rotation_degrees_cw": 0,
-      "rotation_correction_degrees_cw": 0,
-      "flip_x": false,
-      "flip_z": false
-    },
-    "debug": {
-      "canonical_rotation_degrees_cw": 0,
-      "rotation_correction_degrees_cw": 0,
-      "flip_x": false,
-      "flip_z": false
-    }
+	"corner": {
+	  "canonical_rotation_degrees_cw": 0,
+	  "rotation_correction_degrees_cw": 0,
+	  "flip_x": false,
+	  "flip_z": false
+	},
+	"edge": {
+	  "canonical_rotation_degrees_cw": 0,
+	  "rotation_correction_degrees_cw": 0,
+	  "flip_x": false,
+	  "flip_z": false
+	},
+	"t": {
+	  "canonical_rotation_degrees_cw": 0,
+	  "rotation_correction_degrees_cw": 0,
+	  "flip_x": false,
+	  "flip_z": false
+	},
+	"diagonal": {
+	  "canonical_rotation_degrees_cw": 0,
+	  "rotation_correction_degrees_cw": 90,
+	  "flip_x": false,
+	  "flip_z": false
+	},
+	"full": {
+	  "canonical_rotation_degrees_cw": 0,
+	  "rotation_correction_degrees_cw": 0,
+	  "flip_x": false,
+	  "flip_z": false
+	},
+	"debug": {
+	  "canonical_rotation_degrees_cw": 0,
+	  "rotation_correction_degrees_cw": 0,
+	  "flip_x": false,
+	  "flip_z": false
+	}
   },
   "authored_rotated_variants": false
 }
