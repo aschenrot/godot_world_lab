@@ -13,15 +13,15 @@ const ContinuityFactSetScript := preload("res://scripts/world_generation/continu
 const PlacementCandidateSetScript := preload("res://scripts/world_generation/placement/placement_candidate_set.gd")
 const TopologyProjectionSetScript := preload("res://scripts/world_generation/topology/topology_projection_set.gd")
 
-var provider: Node = null
+var provider: Object = null
 
 
-static func from_provider(p_provider: Node) -> LegacyChunkGenerationStage:
+static func from_provider(p_provider: Object) -> LegacyChunkGenerationStage:
 	var stage := LegacyChunkGenerationStage.new()
 	return stage.configure_for_provider(p_provider)
 
 
-func configure_for_provider(p_provider: Node) -> LegacyChunkGenerationStage:
+func configure_for_provider(p_provider: Object) -> LegacyChunkGenerationStage:
 	provider = p_provider
 	configure(STAGE_ID, GenerationStage.CATEGORY_LAYER, true, {"compatibility_mode": true})
 	return self

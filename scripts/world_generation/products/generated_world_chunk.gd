@@ -31,7 +31,11 @@ var validation_issues: PackedStringArray = PackedStringArray()
 var legacy_generation_result: Dictionary = {}
 
 
-static func from_working_set(working_set: GenerationWorkingSet) -> GeneratedWorldChunk:
+static func from_working_set(
+	working_set: GenerationWorkingSet,
+	copy_inputs: bool = true,
+	include_stage_results: bool = true
+) -> GeneratedWorldChunk:
 	var chunk := GeneratedWorldChunk.new()
 	if working_set == null:
 		chunk.validation_issues.append("missing_generation_working_set")
@@ -50,7 +54,7 @@ static func from_working_set(working_set: GenerationWorkingSet) -> GeneratedWorl
 			"halo_cells": context.halo_cells,
 		}
 
-	var generated_products: Dictionary = working_set.generated_products.duplicate(true)
+	var generated_products: Dictionary = _copy_dictionary(working_set.generated_products, copy_inputs)
 	return chunk.configure(
 		next_identity,
 		next_bounds,
@@ -62,9 +66,10 @@ static func from_working_set(working_set: GenerationWorkingSet) -> GeneratedWorl
 		generated_products.get(TOPOLOGY_PROJECTION_SET_KEY, {}),
 		working_set.formation_products,
 		working_set.diagnostics,
-		working_set.stage_report(),
+		working_set.stage_report() if include_stage_results else [],
 		working_set.validation_issues,
-		generated_products.get(LEGACY_GENERATION_RESULT_KEY, {})
+		generated_products.get(LEGACY_GENERATION_RESULT_KEY, {}),
+		copy_inputs
 	)
 
 
@@ -72,9 +77,13 @@ static func from_legacy_generation_result(
 	p_identity: GeneratedChunkIdentity,
 	p_bounds: Dictionary,
 	generation_result: Dictionary,
-	diagnostics: Dictionary = {}
+	diagnostics: Dictionary = {},
+	copy_inputs: bool = true
 ) -> GeneratedWorldChunk:
-	var internal_result := GeneratedChunkDataAdapter.generation_result_without_logic_grid_alias(generation_result)
+	var internal_result := GeneratedChunkDataAdapter.generation_result_without_logic_grid_alias(
+		generation_result,
+		copy_inputs
+	)
 	var topology_layers: Dictionary = internal_result.get("topology_layers", {})
 	var debug_markers: Array = internal_result.get("debug_markers", [])
 	var world_feature_set: Dictionary = WorldFeatureSetScript.from_legacy_debug_markers(
@@ -110,7 +119,8 @@ static func from_legacy_generation_result(
 		diagnostics,
 		[],
 		PackedStringArray(),
-		internal_result
+		internal_result,
+		copy_inputs
 	)
 
 
@@ -127,21 +137,22 @@ func configure(
 	p_generation_diagnostics: Dictionary = {},
 	p_stage_results: Array = [],
 	p_validation_issues: PackedStringArray = PackedStringArray(),
-	p_legacy_generation_result: Dictionary = {}
+	p_legacy_generation_result: Dictionary = {},
+	copy_inputs: bool = true
 ) -> GeneratedWorldChunk:
-	identity = p_identity.duplicate_identity() if p_identity != null else null
-	bounds = p_bounds.duplicate(true)
-	world_layers = p_world_layers.duplicate(true)
-	world_features = p_world_features.duplicate(true)
-	continuity_facts = p_continuity_facts.duplicate(true)
-	placement_candidates = p_placement_candidates.duplicate(true)
-	topology_projections = p_topology_projections.duplicate(true)
-	topology_projection_set = p_topology_projection_set.duplicate(true)
-	formation_products = p_formation_products.duplicate(true)
-	generation_diagnostics = p_generation_diagnostics.duplicate(true)
-	stage_results = p_stage_results.duplicate(true)
-	validation_issues = p_validation_issues.duplicate()
-	legacy_generation_result = p_legacy_generation_result.duplicate(true)
+	identity = p_identity.duplicate_identity() if p_identity != null and copy_inputs else p_identity
+	bounds = _copy_dictionary(p_bounds, copy_inputs)
+	world_layers = _copy_dictionary(p_world_layers, copy_inputs)
+	world_features = _copy_dictionary(p_world_features, copy_inputs)
+	continuity_facts = _copy_dictionary(p_continuity_facts, copy_inputs)
+	placement_candidates = _copy_dictionary(p_placement_candidates, copy_inputs)
+	topology_projections = _copy_dictionary(p_topology_projections, copy_inputs)
+	topology_projection_set = _copy_dictionary(p_topology_projection_set, copy_inputs)
+	formation_products = _copy_dictionary(p_formation_products, copy_inputs)
+	generation_diagnostics = _copy_dictionary(p_generation_diagnostics, copy_inputs)
+	stage_results = p_stage_results.duplicate(true) if copy_inputs else p_stage_results
+	validation_issues = p_validation_issues.duplicate() if copy_inputs else p_validation_issues
+	legacy_generation_result = _copy_dictionary(p_legacy_generation_result, copy_inputs)
 	return self
 
 
@@ -167,8 +178,15 @@ func has_validation_errors() -> bool:
 	return not validation_issues.is_empty()
 
 
-func diagnostics_report() -> Dictionary:
-	return GenerationDiagnosticsScript.from_world_chunk(self).to_dictionary()
+func diagnostics_report(
+	include_product_signatures: bool = true,
+	include_provenance: bool = true
+) -> Dictionary:
+	return GenerationDiagnosticsScript.from_world_chunk(
+		self,
+		include_product_signatures,
+		include_provenance
+	).to_dictionary()
 
 
 func generated_chunk_report() -> Dictionary:
@@ -216,3 +234,7 @@ func signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(validation_issues))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(legacy_generation_result))
 	return h
+
+
+static func _copy_dictionary(value: Dictionary, copy_inputs: bool) -> Dictionary:
+	return value.duplicate(true) if copy_inputs else value

@@ -28,6 +28,25 @@ func duplicate_generator() -> RefCounted:
 
 
 func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
+	var payload := generate_terrain_payload(chunk_coord)
+	var terrain_cells: Array = payload.get("terrain_cells", [])
+	var topology_layers: Dictionary = payload.get("topology_layers", {})
+	var debug_markers: Array = payload.get("debug_markers", [])
+	var diagnostics := terrain_diagnostics(terrain_cells, topology_layers)
+	return {
+		"terrain_cells": terrain_cells,
+		"topology_layers": topology_layers,
+		"logic_grid": topology_layers[LAYER_SOLID].duplicate(true),
+		"debug_markers": debug_markers if bool(settings.get("debug_generation_markers_enabled", true)) else [],
+		"diagnostics": diagnostics,
+	}
+
+
+func generate_topology_layers_only(chunk_coord: Vector3i) -> Dictionary:
+	return generate_terrain_payload(chunk_coord).get("topology_layers", {})
+
+
+func generate_terrain_payload(chunk_coord: Vector3i) -> Dictionary:
 	var size: int = effective_chunk_size_cells()
 	var solid_layer := generate_smoothed_solid_layer(chunk_coord, size)
 	var terrain_cells := generate_base_terrain_cells(chunk_coord, size, solid_layer)
@@ -41,14 +60,10 @@ func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
 	if bool(settings.get("debug_force_chunk_border", false)):
 		apply_forced_chunk_border(terrain_cells)
 
-	var topology_layers := derive_topology_layers(terrain_cells)
-	var diagnostics := terrain_diagnostics(terrain_cells, topology_layers)
 	return {
 		"terrain_cells": terrain_cells,
-		"topology_layers": topology_layers,
-		"logic_grid": topology_layers[LAYER_SOLID].duplicate(true),
-		"debug_markers": debug_markers if bool(settings.get("debug_generation_markers_enabled", true)) else [],
-		"diagnostics": diagnostics,
+		"topology_layers": derive_topology_layers(terrain_cells),
+		"debug_markers": debug_markers,
 	}
 
 

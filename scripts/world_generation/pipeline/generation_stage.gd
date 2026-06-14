@@ -68,7 +68,8 @@ func run(
 			stage_index
 		)
 
-	var before_signature := working_set.signature_hash()
+	var capture_working_set_signatures := _should_capture_working_set_signatures(context)
+	var before_signature := working_set.signature_hash() if capture_working_set_signatures else 0
 	var result := _run(snapshot, context, working_set)
 	if result == null:
 		result = GenerationStageResult.success(stage_id, stage_category, stage_index)
@@ -78,7 +79,8 @@ func run(
 	if result.stage_category.strip_edges().is_empty():
 		result.stage_category = stage_category
 	result.stage_index = stage_index
-	result.mark_working_set_signatures(before_signature, working_set.signature_hash())
+	if capture_working_set_signatures:
+		result.mark_working_set_signatures(before_signature, working_set.signature_hash())
 	return result
 
 
@@ -132,3 +134,11 @@ static func _normalized_category(value: String) -> String:
 	if is_supported_category(normalized):
 		return normalized
 	return CATEGORY_DIAGNOSTIC
+
+
+func _should_capture_working_set_signatures(context: GenerationContext) -> bool:
+	if context == null:
+		return false
+	return context.has_debug_flag("diagnostics_enabled") \
+		or context.has_debug_flag("profiling_enabled") \
+		or context.has_debug_flag("diagnostics_provenance_smoke")

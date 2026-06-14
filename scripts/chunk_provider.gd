@@ -6,8 +6,9 @@ const LAYER_SOLID := "solid"
 const LAYER_WATER := "water"
 const LAYER_CLIFF := "cliff"
 const TOPOLOGY_LAYER_ORDER := [LAYER_GROUND, LAYER_WATER, LAYER_SOLID, LAYER_CLIFF]
-const FormationProductSetScript := preload("res://scripts/world_generation/formation/formation_product_set.gd")
-const LegacyChunkGeneratorScript := preload("res://scripts/world_generation/legacy/legacy_chunk_generator.gd")
+const FormationHaloSamplerScript := preload("res://scripts/world_generation/formation/formation_halo_sampler.gd")
+const FormationLayerBuilderScript := preload("res://scripts/world_generation/formation/formation_layer_builder.gd")
+const WorldGenerationSessionScript := preload("res://scripts/world_generation/runtime/world_generation_session.gd")
 
 @export var chunk_size_cells: int = 16
 @export var generator_version: int = 2
@@ -39,6 +40,8 @@ var completed_unload_count: int = 0
 var cache_hit_count: int = 0
 var cache_miss_count: int = 0
 var formation_sample_cache: Dictionary = {}
+var _world_generation_session_instance: RefCounted = null
+var _world_generation_session_hash: int = -1
 
 
 func _ready() -> void:
@@ -94,7 +97,8 @@ func formation_sample_cache_count() -> int:
 
 func get_loaded_chunk_data(chunk_coord: Vector3i) -> Dictionary:
 	var record: Dictionary = loaded_chunks.get(_chunk_key(chunk_coord), {})
-	return record.get("generated_chunk_data", {})
+	var generated_chunk_data: Dictionary = record.get("generated_chunk_data", {})
+	return generated_chunk_data.duplicate(true)
 
 
 func get_loaded_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
@@ -157,8 +161,8 @@ func _complete_request(request_id: int) -> void:
 func _load_chunk_content(chunk_coord: Vector3i) -> void:
 	var cache_identity := _generated_chunk_identity_for_chunk(chunk_coord)
 	var generation_result := _load_or_generate_chunk_result(chunk_coord, cache_identity)
-	var logic_grid := GeneratedChunkDataAdapter.logic_grid_from_generation_result(generation_result)
-	var generated_chunk_data := make_generated_chunk_data(chunk_coord, logic_grid, generation_result)
+	var logic_grid := GeneratedChunkDataAdapter.logic_grid_from_generation_result(generation_result, false)
+	var generated_chunk_data := make_generated_chunk_data(chunk_coord, logic_grid, generation_result, false)
 	loaded_chunks[_chunk_key(chunk_coord)] = {
 		"coord": chunk_coord,
 		"generator_version": cache_identity.world_definition_version,
@@ -179,11 +183,11 @@ func _load_or_generate_chunk_result(chunk_coord: Vector3i, cache_identity: Gener
 			return chunk_cache.load_generation_result_for_identity(cache_identity)
 
 		cache_miss_count += 1
-		var generated := generate_chunk_generation_result(chunk_coord)
+		var generated := _generate_chunk_generation_result_internal(chunk_coord)
 		chunk_cache.store_generation_result_for_identity(cache_identity, generated)
 		return generated
 
-	return generate_chunk_generation_result(chunk_coord)
+	return _generate_chunk_generation_result_internal(chunk_coord)
 
 
 func _ensure_cache() -> void:
@@ -198,30 +202,25 @@ func generate_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
 
 
 func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
-	var definition := _world_definition_for_generation()
-	var snapshot := definition.compile_snapshot()
-	var request := ChunkGenerationRequest.from_provider_request(
-		-1,
-		ChunkGenerationRequest.KIND_LOAD,
+	return _world_generation_session().generate_chunk_generation_result(
 		chunk_coord,
-		effective_chunk_size_cells(),
-		1,
-		snapshot.requested_product_set,
+		true,
+		true,
+		{"provider": "chunk_provider", "diagnostics_enabled": true}
+	)
+
+
+func _generate_chunk_generation_result_internal(chunk_coord: Vector3i) -> Dictionary:
+	return _world_generation_session().generate_chunk_generation_result(
+		chunk_coord,
+		false,
+		false,
 		{"provider": "chunk_provider"}
 	)
-	var context := GenerationContext.from_snapshot_and_request(snapshot, request)
-	var pipeline := GenerationPipeline.from_stages([
-		LegacyChunkGenerationStage.from_provider(self)
-	])
-	var working_set := pipeline.run(snapshot, context)
-	if working_set.has_validation_errors():
-		push_error("chunk generation pipeline validation issues: %s" % str(working_set.validation_issues))
-	var world_chunk := GeneratedWorldChunk.from_working_set(working_set)
-	return GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
 
 
 func _generate_legacy_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
-	return _legacy_chunk_generator().generate_chunk_generation_result(chunk_coord)
+	return _world_generation_session()._generate_legacy_chunk_generation_result(chunk_coord)
 
 
 func generate_chunk_debug_markers(chunk_coord: Vector3i) -> Array:
@@ -235,12 +234,13 @@ func effective_chunk_size_cells() -> int:
 func make_generated_chunk_data(
 	chunk_coord: Vector3i,
 	logic_grid: Array = [],
-	generation_result: Dictionary = {}
+	generation_result: Dictionary = {},
+	copy_output: bool = true
 ) -> Dictionary:
 	if generation_result.is_empty():
 		if logic_grid.is_empty():
-			generation_result = generate_chunk_generation_result(chunk_coord)
-			logic_grid = GeneratedChunkDataAdapter.logic_grid_from_generation_result(generation_result)
+			generation_result = _generate_chunk_generation_result_internal(chunk_coord)
+			logic_grid = GeneratedChunkDataAdapter.logic_grid_from_generation_result(generation_result, false)
 		else:
 			generation_result = _generation_result_from_logic_grid(logic_grid)
 
@@ -249,10 +249,10 @@ func make_generated_chunk_data(
 		topology_layers = _topology_layers_from_logic_grid(logic_grid)
 	var solid_grid: Array = topology_layers.get(LAYER_SOLID, logic_grid)
 	var formation_layers := make_formation_layers(chunk_coord, topology_layers)
-	var formation_product_set: Dictionary = FormationProductSetScript.from_legacy_formation_layers(
+	var formation_product_set: Dictionary = GeneratedChunkDataAdapter.formation_product_set_from_formation_layers(
 		formation_layers,
 		_world_generation_bounds_for_chunk(chunk_coord)
-	).to_dictionary()
+	)
 	var diagnostics: Dictionary = generation_result.get(
 		"diagnostics",
 		_terrain_diagnostics(
@@ -265,57 +265,60 @@ func make_generated_chunk_data(
 		"topology_layers": topology_layers,
 		"debug_markers": generation_result.get("debug_markers", []),
 		"diagnostics": diagnostics,
-	})
+	}, copy_output)
 	var world_chunk := _world_chunk_from_compatibility_generation_result(
 		chunk_coord,
 		compatibility_result,
-		formation_product_set
+		formation_product_set,
+		copy_output
 	)
 	return GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
 		world_chunk,
 		{},
-		generation_diagnostics()
+		generation_diagnostics(),
+		copy_output
 	)
 
 
 func make_formation_layers(chunk_coord: Vector3i, topology_layers: Dictionary) -> Dictionary:
-	var formation_layers: Dictionary = {}
-	for layer_id in _ordered_layer_ids(topology_layers):
-		formation_layers[layer_id] = _make_formation_data_for_layer(
-			chunk_coord,
-			layer_id,
-			topology_layers[layer_id]
-		)
-	return formation_layers
+	return _formation_layer_builder().make_formation_layers(chunk_coord, topology_layers)
 
 
 func make_formation_data(chunk_coord: Vector3i, logic_grid: Array) -> Dictionary:
-	return _make_formation_data_for_layer(chunk_coord, LAYER_SOLID, logic_grid)
+	return _formation_layer_builder().make_formation_data(chunk_coord, logic_grid)
 
 
 func sample_final_logic_cell(chunk_coord: Vector3i, local_cell: Vector2i) -> int:
-	var world_cell := _world_cell_from_chunk_local(chunk_coord, local_cell)
-	return sample_world_logic_cell(world_cell, chunk_coord.y)
+	return _formation_halo_sampler().sample_final_logic_cell(chunk_coord, local_cell)
 
 
 func sample_world_logic_cell(world_cell: Vector2i, chunk_y: int = 0) -> int:
-	return sample_world_topology_cell(world_cell, LAYER_SOLID, chunk_y)
+	return _formation_halo_sampler().sample_world_logic_cell(world_cell, chunk_y)
 
 
 func sample_world_topology_cell(world_cell: Vector2i, layer_id: String, chunk_y: int = 0) -> int:
-	var owner := world_cell_owner_chunk_coord(world_cell, chunk_y)
-	var local_cell := local_cell_for_world_cell(world_cell)
-	return _grid_cell(_get_generated_topology_layer_for_sampling(owner, layer_id), local_cell)
+	return _formation_halo_sampler().sample_world_topology_cell(
+		world_cell,
+		chunk_y,
+		Vector3i(2147483647, chunk_y, 2147483647),
+		layer_id,
+		[]
+	)
 
 
 func world_cell_owner_chunk_coord(world_cell: Vector2i, chunk_y: int = 0) -> Vector3i:
-	var size := effective_chunk_size_cells()
-	return Vector3i(_floor_div(world_cell.x, size), chunk_y, _floor_div(world_cell.y, size))
+	return FormationHaloSamplerScript.world_cell_owner_chunk_coord(
+		world_cell,
+		chunk_y,
+		effective_chunk_size_cells()
+	)
 
 
 func local_cell_for_world_cell(world_cell: Vector2i) -> Vector2i:
-	var size := effective_chunk_size_cells()
-	return Vector2i(_positive_mod(world_cell.x, size), _positive_mod(world_cell.y, size))
+	return FormationHaloSamplerScript.local_cell_for_world_cell(
+		world_cell,
+		effective_chunk_size_cells()
+	)
 
 
 func generation_settings_hash() -> int:
@@ -341,62 +344,11 @@ func generation_settings_hash() -> int:
 
 
 func generation_diagnostics() -> Dictionary:
-	return {
-		"authority": TERRAIN_AUTHORITY,
-		"world_seed": world_seed,
-		"generator_version": generator_version,
-		"chunk_size_cells": chunk_size_cells,
-		"effective_chunk_size_cells": effective_chunk_size_cells(),
-		"wall_threshold_percent": wall_threshold_percent,
-		"debug_force_chunk_border": debug_force_chunk_border,
-		"smoothing_passes": smoothing_passes,
-		"room_attempts": room_attempts,
-		"room_min_size": room_min_size,
-		"room_max_size": room_max_size,
-		"terrain_noise_frequency": terrain_noise_frequency,
-		"liquid_noise_frequency": liquid_noise_frequency,
-		"solid_noise_frequency": solid_noise_frequency,
-		"liquid_threshold_percent": liquid_threshold_percent,
-		"target_walkable_min_percent": target_walkable_min_percent,
-		"target_walkable_max_percent": target_walkable_max_percent,
-		"liquid_blocks_movement": liquid_blocks_movement,
-		"debug_generation_markers_enabled": debug_generation_markers_enabled,
-		"generation_settings_hash": generation_settings_hash(),
-	}
+	return _world_generation_session().generation_diagnostics()
 
 
 func _world_definition_for_generation() -> WorldDefinition:
-	var definition := WorldDefinition.new()
-	definition.world_definition_id = "godot_lab_legacy_provider"
-	definition.world_definition_version = generator_version
-	definition.world_seed = world_seed
-	definition.domain_descriptor = WorldSpace.DOMAIN_CELL_GRID_2D
-	definition.generation_settings = _world_generation_settings_dictionary()
-	definition.stage_ids = PackedStringArray([LegacyChunkGenerationStage.STAGE_ID])
-	definition.layer_schema_ids = PackedStringArray([
-		LAYER_GROUND,
-		LAYER_WATER,
-		LAYER_SOLID,
-		LAYER_CLIFF,
-	])
-	definition.feature_schema_ids = PackedStringArray(["legacy_debug_markers"])
-	definition.continuity_policy_ids = PackedStringArray()
-	definition.requested_topology_projections = PackedStringArray([
-		LAYER_GROUND,
-		LAYER_WATER,
-		LAYER_SOLID,
-		LAYER_CLIFF,
-	])
-	definition.requested_formation_products = PackedStringArray([
-		LAYER_GROUND,
-		LAYER_WATER,
-		LAYER_SOLID,
-		LAYER_CLIFF,
-	])
-	definition.requested_product_set = PackedStringArray([
-		GeneratedChunkIdentity.PRODUCT_GENERATED_WORLD_CHUNK,
-	])
-	return definition
+	return _world_generation_session().world_definition()
 
 
 func _world_generation_settings_dictionary() -> Dictionary:
@@ -427,33 +379,23 @@ func _world_generation_settings_dictionary() -> Dictionary:
 func _world_chunk_from_compatibility_generation_result(
 	chunk_coord: Vector3i,
 	generation_result: Dictionary,
-	formation_product_set: Dictionary = {}
+	formation_product_set: Dictionary = {},
+	copy_inputs: bool = true
 ) -> GeneratedWorldChunk:
 	var identity := _generated_chunk_identity_for_chunk(chunk_coord)
 	var world_chunk := GeneratedWorldChunk.from_legacy_generation_result(
 		identity,
 		_world_generation_bounds_for_chunk(chunk_coord),
 		generation_result,
-		generation_result.get("diagnostics", {})
+		generation_result.get("diagnostics", {}),
+		copy_inputs
 	)
-	world_chunk.formation_products = formation_product_set.duplicate(true)
+	world_chunk.formation_products = formation_product_set.duplicate(true) if copy_inputs else formation_product_set
 	return world_chunk
 
 
 func _world_generation_bounds_for_chunk(chunk_coord: Vector3i) -> Dictionary:
-	var world_space := WorldSpace.from_parts(
-		effective_chunk_size_cells(),
-		1,
-		WorldSpace.DOMAIN_CELL_GRID_2D
-	)
-	return {
-		"chunk_coord": chunk_coord,
-		"domain_descriptor": WorldSpace.DOMAIN_CELL_GRID_2D,
-		"owned_cell_bounds": world_space.owned_cell_bounds_for_chunk(chunk_coord),
-		"sample_cell_bounds": world_space.sample_cell_bounds_for_chunk(chunk_coord),
-		"chunk_size_cells": effective_chunk_size_cells(),
-		"halo_cells": 1,
-	}
+	return _world_generation_session().bounds_for_chunk(chunk_coord)
 
 
 func get_diagnostics() -> Dictionary:
@@ -472,226 +414,92 @@ func get_diagnostics() -> Dictionary:
 	}
 
 
+func _world_generation_session() -> RefCounted:
+	var current_hash := generation_settings_hash()
+	if _world_generation_session_instance == null or _world_generation_session_hash != current_hash:
+		_world_generation_session_instance = WorldGenerationSessionScript.from_settings(
+			_world_generation_settings_dictionary(),
+			self
+		)
+		_world_generation_session_hash = current_hash
+		formation_sample_cache.clear()
+	return _world_generation_session_instance
+
+
+func _formation_halo_sampler() -> RefCounted:
+	if use_chunk_cache:
+		_ensure_cache()
+	return FormationHaloSamplerScript.from_context(
+		_world_generation_session(),
+		effective_chunk_size_cells(),
+		loaded_chunks,
+		chunk_cache,
+		use_chunk_cache,
+		formation_sample_cache
+	)
+
+
+func _formation_layer_builder() -> RefCounted:
+	return FormationLayerBuilderScript.from_sampler(
+		_world_generation_session(),
+		_formation_halo_sampler()
+	)
+
+
 func _legacy_chunk_generator() -> RefCounted:
-	return LegacyChunkGeneratorScript.from_settings(_world_generation_settings_dictionary())
+	return _world_generation_session().legacy_chunk_generator()
 
 
 func _generate_base_terrain_cells(chunk_coord: Vector3i, size: int, solid_layer: Array) -> Array:
-	return _legacy_chunk_generator().generate_base_terrain_cells(chunk_coord, size, solid_layer)
+	return _world_generation_session().generate_base_terrain_cells(chunk_coord, size, solid_layer)
 
 
 func _make_terrain_cell(height_percent: int, liquid: bool, solid: bool) -> Dictionary:
-	return _legacy_chunk_generator().make_terrain_cell(height_percent, liquid, solid)
+	return _world_generation_session().make_terrain_cell(height_percent, liquid, solid)
 
 
 func _set_cell_flags(cell: Dictionary, liquid: bool, solid: bool, height_percent: int = -1) -> Dictionary:
-	return _legacy_chunk_generator().set_cell_flags(cell, liquid, solid, height_percent)
+	return _world_generation_session().set_cell_flags(cell, liquid, solid, height_percent)
 
 
 func _generate_smoothed_solid_layer(chunk_coord: Vector3i, size: int) -> Array:
-	return _legacy_chunk_generator().generate_smoothed_solid_layer(chunk_coord, size)
+	return _world_generation_session().generate_smoothed_solid_layer(chunk_coord, size)
 
 
 func _carve_rooms_and_paths(chunk_coord: Vector3i, terrain_cells: Array, debug_markers: Array) -> void:
-	_legacy_chunk_generator().carve_rooms_and_paths(chunk_coord, terrain_cells, debug_markers)
+	_world_generation_session().carve_rooms_and_paths(chunk_coord, terrain_cells, debug_markers)
 
 
 func _repair_walkable_connectivity(terrain_cells: Array, debug_markers: Array) -> void:
-	_legacy_chunk_generator().repair_walkable_connectivity(terrain_cells, debug_markers)
+	_world_generation_session().repair_walkable_connectivity(terrain_cells, debug_markers)
 
 
 func _balance_walkable_percent(terrain_cells: Array, debug_markers: Array) -> void:
-	_legacy_chunk_generator().balance_walkable_percent(terrain_cells, debug_markers)
+	_world_generation_session().balance_walkable_percent(terrain_cells, debug_markers)
 
 
 func _derive_topology_layers(terrain_cells: Array) -> Dictionary:
-	return _legacy_chunk_generator().derive_topology_layers(terrain_cells)
+	return _world_generation_session().derive_topology_layers(terrain_cells)
 
 
 func _terrain_diagnostics(terrain_cells: Array, topology_layers: Dictionary) -> Dictionary:
-	return _legacy_chunk_generator().terrain_diagnostics(terrain_cells, topology_layers)
-
-
-func _make_formation_data_for_layer(chunk_coord: Vector3i, layer_id: String, layer_grid: Array) -> Dictionary:
-	var size := _logic_grid_dimension(layer_grid)
-	var formation_grid: Array = []
-	var source_chunks: Dictionary = {}
-
-	for local_y in range(-1, size):
-		var row: Array = []
-		for local_x in range(-1, size):
-			var world_cell := _world_cell_from_chunk_local(chunk_coord, Vector2i(local_x, local_y))
-			var owner := world_cell_owner_chunk_coord(world_cell, chunk_coord.y)
-			source_chunks[_chunk_key(owner)] = owner
-			row.append(_sample_world_topology_cell_with_current_grid(
-				world_cell,
-				chunk_coord.y,
-				chunk_coord,
-				layer_id,
-				layer_grid
-			))
-		formation_grid.append(row)
-
-	return {
-		"layer_id": layer_id,
-		"formation_grid": formation_grid,
-		"formation_origin_cell": Vector2i(-1, -1),
-		"owned_visual_origin": Vector2i.ZERO,
-		"owned_visual_size": Vector2i(size, size),
-		"formation_mode": "owned_halo",
-		"source_chunk_coords": _sorted_chunk_coords(source_chunks),
-	}
-
-
-func _sample_world_topology_cell_with_current_grid(
-	world_cell: Vector2i,
-	chunk_y: int,
-	current_chunk_coord: Vector3i,
-	layer_id: String,
-	current_layer_grid: Array
-) -> int:
-	var owner := world_cell_owner_chunk_coord(world_cell, chunk_y)
-	var local_cell := local_cell_for_world_cell(world_cell)
-	if owner == current_chunk_coord:
-		return _grid_cell(current_layer_grid, local_cell)
-	return _grid_cell(_get_generated_topology_layer_for_sampling(owner, layer_id), local_cell)
-
-
-func _get_generated_topology_layer_for_sampling(chunk_coord: Vector3i, layer_id: String) -> Array:
-	var result := _get_generated_result_for_sampling(chunk_coord)
-	var topology_layers: Dictionary = result.get("topology_layers", {})
-	if topology_layers.has(layer_id):
-		return topology_layers[layer_id]
-	if topology_layers.has(LAYER_SOLID):
-		return topology_layers[LAYER_SOLID]
-	return result.get("logic_grid", [])
-
-
-func _get_generated_logic_grid_for_sampling(chunk_coord: Vector3i) -> Array:
-	return _get_generated_topology_layer_for_sampling(chunk_coord, LAYER_SOLID)
-
-
-func _get_generated_result_for_sampling(chunk_coord: Vector3i) -> Dictionary:
-	var cache_identity := _generated_chunk_identity_for_chunk(chunk_coord)
-	var loaded_record: Dictionary = loaded_chunks.get(_chunk_key(chunk_coord), {})
-	if (
-		not loaded_record.is_empty()
-		and loaded_record.get("cache_key", "") == cache_identity.cache_key()
-	):
-		var loaded_data: Dictionary = loaded_record.get("generated_chunk_data", {})
-		if loaded_data.has("topology_layers"):
-			return loaded_data
-
-	var cache_key := cache_identity.cache_key()
-	if formation_sample_cache.has(cache_key):
-		return formation_sample_cache[cache_key]
-
-	var result: Dictionary = {}
-	if use_chunk_cache:
-		_ensure_cache()
-		if chunk_cache.has_identity(cache_identity):
-			result = chunk_cache.load_generation_result_for_identity(cache_identity)
-
-	if result.is_empty():
-		result = generate_chunk_generation_result(chunk_coord)
-
-	formation_sample_cache[cache_key] = result
-	return result
+	return _world_generation_session().terrain_diagnostics(terrain_cells, topology_layers)
 
 
 func _generated_chunk_identity_for_chunk(chunk_coord: Vector3i) -> GeneratedChunkIdentity:
-	var definition := _world_definition_for_generation()
-	var snapshot := definition.compile_snapshot()
-	return snapshot.identity_for_chunk(chunk_coord, snapshot.requested_product_set)
+	return _world_generation_session().identity_for_chunk(chunk_coord)
 
 
 func _generation_result_from_logic_grid(logic_grid: Array) -> Dictionary:
-	return _legacy_chunk_generator().generation_result_from_logic_grid(logic_grid)
+	return _world_generation_session().generation_result_from_logic_grid(logic_grid)
 
 
 func _topology_layers_from_logic_grid(logic_grid: Array) -> Dictionary:
-	return _legacy_chunk_generator().topology_layers_from_logic_grid(logic_grid)
+	return _world_generation_session().topology_layers_from_logic_grid(logic_grid)
 
 
 func _terrain_cells_from_logic_grid(logic_grid: Array) -> Array:
-	return _legacy_chunk_generator().terrain_cells_from_logic_grid(logic_grid)
-
-
-func _ordered_layer_ids(topology_layers: Dictionary) -> Array:
-	var ordered: Array[String] = []
-	for layer_id in TOPOLOGY_LAYER_ORDER:
-		if topology_layers.has(layer_id):
-			ordered.append(layer_id)
-	var extra: Array = topology_layers.keys()
-	extra.sort()
-	for layer_id in extra:
-		if not ordered.has(String(layer_id)):
-			ordered.append(String(layer_id))
-	return ordered
-
-
-func _grid_contains(grid: Array, x: int, y: int) -> bool:
-	return y >= 0 and y < grid.size() and x >= 0 and x < int(grid[y].size())
-
-
-func _grid_cell(grid: Array, local_cell: Vector2i) -> int:
-	if (
-		local_cell.y < 0
-		or local_cell.y >= grid.size()
-		or local_cell.x < 0
-		or local_cell.x >= int(grid[local_cell.y].size())
-	):
-		return 0
-	return int(grid[local_cell.y][local_cell.x])
-
-
-func _logic_grid_cell(logic_grid: Array, local_cell: Vector2i) -> int:
-	return _grid_cell(logic_grid, local_cell)
-
-
-func _logic_grid_dimension(logic_grid: Array) -> int:
-	if logic_grid.is_empty():
-		return effective_chunk_size_cells()
-	return logic_grid.size()
-
-
-func _grid_dimension_vec(grid: Array) -> Vector2i:
-	var height := grid.size()
-	var width := 0
-	for row in grid:
-		width = maxi(width, int(row.size()))
-	return Vector2i(width, height)
-
-
-func _world_cell_from_chunk_local(chunk_coord: Vector3i, local_cell: Vector2i) -> Vector2i:
-	var size := effective_chunk_size_cells()
-	return Vector2i(chunk_coord.x * size + local_cell.x, chunk_coord.z * size + local_cell.y)
-
-
-func _floor_div(value: int, divisor: int) -> int:
-	if divisor <= 0:
-		return 0
-	return floori(float(value) / float(divisor))
-
-
-func _positive_mod(value: int, modulus: int) -> int:
-	if modulus <= 0:
-		return 0
-	var result := value % modulus
-	return result + modulus if result < 0 else result
-
-
-func _sorted_chunk_coords(chunks_by_key: Dictionary) -> Array:
-	var keys := chunks_by_key.keys()
-	keys.sort()
-	var coords: Array[Vector3i] = []
-	for key in keys:
-		coords.append(chunks_by_key[key])
-	return coords
-
-
-func _cell_key(cell: Vector2i) -> String:
-	return "%s:%s" % [cell.x, cell.y]
+	return _world_generation_session().terrain_cells_from_logic_grid(logic_grid)
 
 
 func _chunk_key(chunk_coord: Vector3i) -> String:
@@ -702,15 +510,5 @@ func _mix(seed: int, value: int) -> int:
 	var h := seed ^ (value * 0x45d9f3b)
 	h = h ^ (h >> 16)
 	h *= 0x45d9f3b
-	h = h ^ (h >> 16)
-	return h
-
-
-func _finalize_hash(value: int) -> int:
-	var h := value
-	h = h ^ (h >> 16)
-	h *= 0x7feb352d
-	h = h ^ (h >> 15)
-	h *= 0x846ca68b
 	h = h ^ (h >> 16)
 	return h

@@ -57,7 +57,11 @@ static func from_parts(
 	)
 
 
-static func from_world_chunk(world_chunk: Variant) -> RefCounted:
+static func from_world_chunk(
+	world_chunk: Variant,
+	include_product_signatures: bool = true,
+	include_provenance: bool = true
+) -> RefCounted:
 	if world_chunk == null:
 		return load(SELF_SCRIPT_PATH).from_parts(
 			{},
@@ -76,8 +80,10 @@ static func from_world_chunk(world_chunk: Variant) -> RefCounted:
 	var aggregate_emitted_counts := _aggregate_emitted_counts(stage_entries)
 	var chunk_validation_errors := _validation_errors_from_world_chunk(world_chunk, stage_entries)
 	var chunk_warnings := _warnings_from_stage_entries(stage_entries)
-	var next_product_signatures := product_signature_map_from_world_chunk(world_chunk)
-	var next_provenance := _provenance_from_world_chunk(world_chunk, stage_entries, next_product_signatures)
+	var next_product_signatures := product_signature_map_from_world_chunk(world_chunk) \
+		if include_product_signatures else {}
+	var next_provenance := _provenance_from_world_chunk(world_chunk, stage_entries, next_product_signatures) \
+		if include_provenance else {}
 	return load(SELF_SCRIPT_PATH).from_parts(
 		world_chunk.identity.to_dictionary() if world_chunk.identity != null else {},
 		stage_entries,
@@ -88,7 +94,7 @@ static func from_world_chunk(world_chunk: Variant) -> RefCounted:
 		next_product_signatures,
 		next_provenance,
 		world_chunk.generation_diagnostics,
-		world_chunk.signature_hash(),
+		world_chunk.signature_hash() if include_product_signatures else 0,
 		{"source_product_type": world_chunk.PRODUCT_TYPE}
 	)
 
