@@ -71,7 +71,9 @@ func run(
 
 	var capture_working_set_signatures := _should_capture_working_set_signatures(context)
 	var before_signature := working_set.signature_hash() if capture_working_set_signatures else 0
+	var start_us := Time.get_ticks_usec()
 	var result := _run(snapshot, context, working_set)
+	var elapsed_us := Time.get_ticks_usec() - start_us
 	if result == null:
 		result = GenerationStageResult.success(stage_id, stage_category, stage_index)
 
@@ -80,6 +82,7 @@ func run(
 	if result.stage_category.strip_edges().is_empty():
 		result.stage_category = stage_category
 	result.stage_index = stage_index
+	result.set_diagnostic("elapsed_us", elapsed_us)
 	if capture_working_set_signatures:
 		result.mark_working_set_signatures(before_signature, working_set.signature_hash())
 	return result

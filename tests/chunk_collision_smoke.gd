@@ -48,12 +48,7 @@ func _assert_direct_collision_builder() -> void:
 	var provider: Node = Provider.new()
 	var collision_builder: RefCounted = CollisionBuilder.new()
 	var chunk_coord := Vector3i(2, 0, -1)
-	var generation_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
-	var generated_data: Dictionary = provider.make_generated_chunk_data(
-		chunk_coord,
-		generation_result["logic_grid"],
-		generation_result
-	)
+	var generated_data: Dictionary = provider.make_generated_chunk_data(chunk_coord)
 	var collision_body: StaticBody3D = collision_builder.build_chunk_collision(
 		chunk_coord,
 		generated_data,
@@ -66,8 +61,8 @@ func _assert_direct_collision_builder() -> void:
 	_assert(collision_body.name == "ChunkCollision", "collision body has stable name")
 	_assert(collision_body.get_meta("chunk_coord") == chunk_coord, "collision body keeps chunk coord")
 	_assert(
-		int(collision_body.get_meta("collision_shape_count")) == collision_plan["blocking_cells"].size(),
-		"collision shape count matches blocking policy cells"
+		int(collision_body.get_meta("collision_shape_count")) == collision_plan["merged_boxes"].size(),
+		"collision shape count matches merged collision boxes"
 	)
 	_assert(collision_plan["policy"]["ground_visuals_block_movement"] == false, "ground visuals do not imply blockers")
 	_assert(collision_plan["diagnostics"]["source_has_topology_layers"], "collision consumes topology layers")
@@ -99,19 +94,25 @@ func _assert_layer_semantics(collision_builder: RefCounted) -> void:
 		"logic_grid": [[0, 0], [0, 0]],
 	}
 	var ground_plan: Dictionary = collision_builder.build_collision_plan(Vector3i.ZERO, ground_only, {"liquid_blocks_movement": true})
-	_assert(ground_plan["blocking_cells"].is_empty(), "ground layer alone creates no blockers")
+	_assert(ground_plan["merged_boxes"].is_empty(), "ground layer alone creates no blockers")
 
 	var solid_source := ground_only.duplicate(true)
 	solid_source["topology_layers"]["solid"] = [[1, 0], [0, 0]]
 	var solid_plan: Dictionary = collision_builder.build_collision_plan(Vector3i.ZERO, solid_source, {"liquid_blocks_movement": true})
-	_assert(solid_plan["blocking_cells"].size() == 1, "solid layer creates blockers")
+	_assert(solid_plan["merged_boxes"].size() == 1, "solid layer creates blockers")
+
+	var mergeable_source := ground_only.duplicate(true)
+	mergeable_source["topology_layers"]["solid"] = [[1, 1], [1, 1]]
+	var mergeable_plan: Dictionary = collision_builder.build_collision_plan(Vector3i.ZERO, mergeable_source, {"liquid_blocks_movement": true})
+	_assert(int(mergeable_plan["diagnostics"]["blocking_cell_count"]) == 4, "mergeable grid reports all blocking cells")
+	_assert(int(mergeable_plan["diagnostics"]["merged_shape_count"]) == 1, "mergeable grid collapses to one merged box")
 
 	var water_source := ground_only.duplicate(true)
 	water_source["topology_layers"]["water"] = [[0, 1], [0, 0]]
 	var blocked_water_plan: Dictionary = collision_builder.build_collision_plan(Vector3i.ZERO, water_source, {"liquid_blocks_movement": true})
 	var open_water_plan: Dictionary = collision_builder.build_collision_plan(Vector3i.ZERO, water_source, {"liquid_blocks_movement": false})
-	_assert(blocked_water_plan["blocking_cells"].size() == 1, "liquid policy can create blockers")
-	_assert(open_water_plan["blocking_cells"].is_empty(), "liquid policy can allow movement")
+	_assert(blocked_water_plan["merged_boxes"].size() == 1, "liquid policy can create blockers")
+	_assert(open_water_plan["merged_boxes"].is_empty(), "liquid policy can allow movement")
 
 
 func _assert(condition: bool, message: String) -> void:

@@ -94,7 +94,7 @@ visual backend: MultiMesh
 root lifecycle: chunk-resident roots with bounded pooling
 dirty update scope: one logic cell -> at most four visual corners
 full visual rebuild scope: chunk residency/backend rebuilds
-collision backend: one box CollisionShape3D per blocking policy cell
+collision backend: one box CollisionShape3D per merged blocking rectangle
 ```
 
 The budget is a runtime realization contract only. It does not change generated

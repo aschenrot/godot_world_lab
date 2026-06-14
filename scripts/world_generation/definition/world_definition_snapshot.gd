@@ -15,6 +15,8 @@ var feature_schema_ids: PackedStringArray = PackedStringArray()
 var continuity_policy_ids: PackedStringArray = PackedStringArray()
 var requested_topology_projections: PackedStringArray = PackedStringArray()
 var requested_formation_products: PackedStringArray = PackedStringArray()
+var formation_product_dependencies: Dictionary = {}
+var internal_required_topology_projections: PackedStringArray = PackedStringArray()
 var requested_product_set: PackedStringArray = PackedStringArray([GeneratedChunkIdentity.PRODUCT_GENERATED_WORLD_CHUNK])
 
 
@@ -69,6 +71,11 @@ func configure(
 	continuity_policy_ids = _copy_string_array(p_continuity_policy_ids)
 	requested_topology_projections = _copy_string_array(p_requested_topology_projections)
 	requested_formation_products = _copy_string_array(p_requested_formation_products)
+	formation_product_dependencies = dependencies_for_formation_products(requested_formation_products)
+	internal_required_topology_projections = _derive_internal_required_topology_projections(
+		requested_topology_projections,
+		formation_product_dependencies
+	)
 	requested_product_set = GeneratedChunkIdentity.normalized_requested_products(p_requested_product_set)
 	if requested_product_set.is_empty():
 		requested_product_set = PackedStringArray([GeneratedChunkIdentity.PRODUCT_GENERATED_WORLD_CHUNK])
@@ -131,6 +138,8 @@ func to_dictionary() -> Dictionary:
 		"continuity_policy_ids": continuity_policy_ids.duplicate(),
 		"requested_topology_projections": requested_topology_projections.duplicate(),
 		"requested_formation_products": requested_formation_products.duplicate(),
+		"formation_product_dependencies": formation_product_dependencies.duplicate(true),
+		"internal_required_topology_projections": internal_required_topology_projections.duplicate(),
 		"requested_product_set": requested_product_set.duplicate(),
 	}
 
@@ -149,9 +158,10 @@ func signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_ordered_string_ids(continuity_policy_ids))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_unordered_string_ids(requested_topology_projections))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_unordered_string_ids(requested_formation_products))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(formation_product_dependencies))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_unordered_string_ids(internal_required_topology_projections))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_unordered_string_ids(requested_product_set))
 	return h
-
 
 static func _copy_string_array(input_values: PackedStringArray) -> PackedStringArray:
 	var values := PackedStringArray()
@@ -161,6 +171,52 @@ static func _copy_string_array(input_values: PackedStringArray) -> PackedStringA
 			continue
 		values.append(value)
 	return values
+
+
+static func dependencies_for_formation_products(requested_products: PackedStringArray) -> Dictionary:
+	var dependencies: Dictionary = {}
+	var legacy_dependencies := _legacy_formation_dependencies()
+	for product_id in requested_products:
+		var normalized_product_id := String(product_id).strip_edges()
+		if normalized_product_id.is_empty():
+			continue
+		if legacy_dependencies.has(normalized_product_id):
+			dependencies[normalized_product_id] = legacy_dependencies[normalized_product_id].duplicate()
+		else:
+			dependencies[normalized_product_id] = PackedStringArray()
+	return dependencies
+
+
+static func topology_dependencies_for_formation_product(product_id: String) -> PackedStringArray:
+	var normalized_product_id := product_id.strip_edges()
+	var legacy_dependencies := _legacy_formation_dependencies()
+	if legacy_dependencies.has(normalized_product_id):
+		return legacy_dependencies[normalized_product_id].duplicate()
+	return PackedStringArray()
+
+
+static func public_layer_id_for_formation_product(product_id: String) -> String:
+	var normalized_product_id := product_id.strip_edges()
+	var legacy_dependencies := _legacy_formation_dependencies()
+	if legacy_dependencies.has(normalized_product_id):
+		var dependencies: PackedStringArray = legacy_dependencies[normalized_product_id]
+		return String(dependencies[0]) if dependencies.size() > 0 else ""
+	if normalized_product_id.ends_with("_formation"):
+		return normalized_product_id.substr(0, normalized_product_id.length() - "_formation".length())
+	return normalized_product_id
+
+
+static func _legacy_formation_dependencies() -> Dictionary:
+	return {
+		"ground": PackedStringArray(["ground"]),
+		"ground_formation": PackedStringArray(["ground"]),
+		"water": PackedStringArray(["water"]),
+		"water_formation": PackedStringArray(["water"]),
+		"solid": PackedStringArray(["solid"]),
+		"solid_formation": PackedStringArray(["solid"]),
+		"cliff": PackedStringArray(["cliff"]),
+		"cliff_formation": PackedStringArray(["cliff"]),
+	}
 
 
 static func _to_packed_string_array(value: Variant) -> PackedStringArray:
@@ -173,3 +229,25 @@ static func _to_packed_string_array(value: Variant) -> PackedStringArray:
 	for item in array_value:
 		result.append(String(item))
 	return result
+
+
+static func _derive_internal_required_topology_projections(
+	public_requested_topology: PackedStringArray,
+	dependencies_by_product: Dictionary
+) -> PackedStringArray:
+	var seen: Dictionary = {}
+	for projection_id in public_requested_topology:
+		var normalized_projection_id := String(projection_id).strip_edges()
+		if not normalized_projection_id.is_empty():
+			seen[normalized_projection_id] = true
+	for product_id in dependencies_by_product.keys():
+		var dependencies: PackedStringArray = dependencies_by_product[product_id]
+		for dependency_id in dependencies:
+			var normalized_dependency_id := String(dependency_id).strip_edges()
+			if not normalized_dependency_id.is_empty():
+				seen[normalized_dependency_id] = true
+	var ids := PackedStringArray()
+	for projection_id in seen.keys():
+		ids.append(String(projection_id))
+	ids.sort()
+	return ids

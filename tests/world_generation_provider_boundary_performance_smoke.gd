@@ -112,7 +112,7 @@ func test_settings_hash_reuses_and_invalidates_session_state() -> void:
 	_assert(snapshot_a.get_instance_id() == snapshot_b.get_instance_id(), "session reuses snapshot while settings are unchanged")
 	_assert(generator_id_a == generator_id_b, "session reuses LegacyChunkGenerator while settings are unchanged")
 
-	provider.formation_sample_cache["sentinel"] = true
+	provider.formation_sample_cache.store_topology_layers("topology:sentinel", {"solid": [[1]]}, "sentinel")
 	provider.world_seed += 1
 	var session_c: Object = provider._world_generation_session()
 	var snapshot_c: Object = session_c.call("snapshot")

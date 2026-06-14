@@ -135,7 +135,13 @@ func _run(
 	var topology_projection_set := TopologyProjectionSetScript.from_legacy_topology_layers(
 		topology_layers,
 		context_bounds,
-		context.domain_descriptor
+		context.domain_descriptor,
+		{
+			"requested_topology_projections": _snapshot.requested_topology_projections.duplicate(),
+			"internal_required_topology_projections": _internal_required_topology_projections(_snapshot),
+			"requested_formation_products": _snapshot.requested_formation_products.duplicate(),
+			"formation_product_dependencies": _snapshot.formation_product_dependencies.duplicate(true),
+		}
 	)
 	working_set.set_store_value(
 		GenerationWorkingSet.STORE_PRODUCTS,
@@ -192,15 +198,22 @@ func _has_required_compatibility_shape(generation_result: Dictionary) -> bool:
 func _filter_requested_topology_layers(
 	snapshot: WorldDefinitionSnapshot,
 	topology_layers: Dictionary
-) -> Dictionary:
-	if snapshot == null or snapshot.requested_topology_projections.is_empty():
-		return topology_layers
-	var filtered: Dictionary = {}
-	for projection_id in snapshot.requested_topology_projections:
-		var layer_id := String(projection_id)
-		if topology_layers.has(layer_id):
-			filtered[layer_id] = topology_layers[layer_id]
-	return filtered
+	) -> Dictionary:
+		var requested_projection_ids := _internal_required_topology_projections(snapshot)
+		if snapshot == null or requested_projection_ids.is_empty():
+			return topology_layers
+		var filtered: Dictionary = {}
+		for projection_id in requested_projection_ids:
+			var layer_id := String(projection_id)
+			if topology_layers.has(layer_id):
+				filtered[layer_id] = topology_layers[layer_id]
+		return filtered
+
+
+func _internal_required_topology_projections(snapshot: WorldDefinitionSnapshot) -> PackedStringArray:
+	if snapshot == null:
+		return PackedStringArray()
+	return snapshot.internal_required_topology_projections
 
 
 func _context_bounds(context: GenerationContext) -> Dictionary:

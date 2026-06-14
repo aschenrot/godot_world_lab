@@ -5,6 +5,8 @@ class_name GeneratedWorldChunk
 const PRODUCT_TYPE := "GeneratedWorldChunk"
 const SCHEMA_VERSION := 1
 const LEGACY_GENERATION_RESULT_KEY := "legacy_generation_result"
+const NATIVE_TERRAIN_CELLS_KEY := "native_terrain_cells"
+const NATIVE_DEBUG_MARKERS_KEY := "native_debug_markers"
 const WORLD_FEATURE_SET_KEY := "world_feature_set"
 const CONTINUITY_FACT_SET_KEY := "continuity_fact_set"
 const PLACEMENT_CANDIDATE_SET_KEY := "placement_candidate_set"
@@ -239,15 +241,15 @@ func generated_truth_signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(placement_candidates))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(topology_projection_set))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(formation_products))
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(validation_issues))
 	return h
 
 
 func report_signature_hash() -> int:
 	var h := generated_truth_signature_hash()
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(topology_projections))
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(generation_diagnostics))
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(stage_results))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_report_variant(generation_diagnostics))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_report_variant(stage_results))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(validation_issues))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(legacy_generation_result))
 	return h
 

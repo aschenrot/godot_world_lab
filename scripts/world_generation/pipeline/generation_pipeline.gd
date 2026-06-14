@@ -84,19 +84,31 @@ func run(
 	working_set.set_diagnostic("pipeline_id", pipeline_id)
 	working_set.set_diagnostic("pipeline_version", pipeline_version)
 	working_set.set_diagnostic("stage_count", stages.size())
+	var validation_start_us := Time.get_ticks_usec()
 
 	if snapshot == null:
 		working_set.add_validation_issue("missing_world_definition_snapshot")
+		working_set.set_diagnostic("pipeline_validation_us", Time.get_ticks_usec() - validation_start_us)
 		return working_set
 	if context == null:
 		working_set.add_validation_issue("missing_generation_context")
+		working_set.set_diagnostic("pipeline_validation_us", Time.get_ticks_usec() - validation_start_us)
 		return working_set
 	if context.identity == null:
 		working_set.add_validation_issue("missing_generated_chunk_identity")
+		working_set.set_diagnostic("pipeline_validation_us", Time.get_ticks_usec() - validation_start_us)
 		return working_set
 	if not _context_matches_snapshot(snapshot, context):
 		working_set.add_validation_issue("generation_context_snapshot_identity_mismatch")
+		working_set.set_diagnostic("pipeline_validation_us", Time.get_ticks_usec() - validation_start_us)
 		return working_set
+	var snapshot_validation := WorldDefinitionValidator.validate_snapshot(snapshot)
+	if not bool(snapshot_validation.get("valid", false)):
+		for issue in snapshot_validation.get("issues", PackedStringArray()):
+			working_set.add_validation_issue(String(issue))
+		working_set.set_diagnostic("pipeline_validation_us", Time.get_ticks_usec() - validation_start_us)
+		return working_set
+	working_set.set_diagnostic("pipeline_validation_us", Time.get_ticks_usec() - validation_start_us)
 
 	for index in range(stages.size()):
 		var stage: GenerationStage = stages[index]

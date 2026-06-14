@@ -10,7 +10,7 @@ var chunk_size_cells: int = 16
 var loaded_chunks: Dictionary = {}
 var chunk_cache: RefCounted = null
 var use_chunk_cache: bool = false
-var sample_cache: Dictionary = {}
+var sample_cache: Variant = null
 var allow_full_neighbor_generation: bool = false
 
 var loaded_neighbor_lookup_count: int = 0
@@ -26,7 +26,7 @@ static func from_context(
 	p_loaded_chunks: Dictionary,
 	p_chunk_cache: RefCounted,
 	p_use_chunk_cache: bool,
-	p_sample_cache: Dictionary
+	p_sample_cache: Variant
 ) -> RefCounted:
 	var sampler: RefCounted = load(SELF_SCRIPT_PATH).new()
 	return sampler.configure(
@@ -45,7 +45,7 @@ func configure(
 	p_loaded_chunks: Dictionary,
 	p_chunk_cache: RefCounted,
 	p_use_chunk_cache: bool,
-	p_sample_cache: Dictionary
+	p_sample_cache: Variant
 ) -> RefCounted:
 	session = p_session
 	chunk_size_cells = maxi(p_chunk_size_cells, 1)
@@ -93,9 +93,10 @@ func topology_layers_for_sampling(chunk_coord: Vector3i) -> Dictionary:
 	var cache_key := identity.cache_key() if identity != null else _chunk_key(chunk_coord)
 	var topology_cache_key := "topology:%s" % cache_key
 
-	if sample_cache.has(topology_cache_key):
+	var cached_topology_layers := _load_sample_cache(topology_cache_key)
+	if not cached_topology_layers.is_empty():
 		sample_cache_hit_count += 1
-		return sample_cache[topology_cache_key]
+		return cached_topology_layers
 
 	var topology_layers := _topology_layers_from_loaded_neighbor(chunk_coord, cache_key)
 	if topology_layers.is_empty():
@@ -103,7 +104,7 @@ func topology_layers_for_sampling(chunk_coord: Vector3i) -> Dictionary:
 	if topology_layers.is_empty():
 		topology_layers = _topology_layers_from_fallback(chunk_coord)
 
-	sample_cache[topology_cache_key] = topology_layers
+	_store_sample_cache(topology_cache_key, topology_layers, _chunk_key(chunk_coord))
 	return topology_layers
 
 
@@ -124,16 +125,16 @@ func _topology_layers_from_loaded_neighbor(chunk_coord: Vector3i, expected_cache
 func _topology_layers_from_chunk_cache(identity: GeneratedChunkIdentity) -> Dictionary:
 	if not use_chunk_cache or chunk_cache == null or identity == null:
 		return {}
-	if not chunk_cache.has_identity(identity):
+	if not chunk_cache.has_world_chunk(identity):
 		return {}
 	chunk_cache_lookup_count += 1
-	var generation_result: Dictionary = chunk_cache.load_generation_result_for_identity(identity)
+	var world_chunk: GeneratedWorldChunk = chunk_cache.load_world_chunk_for_identity(identity)
+	if world_chunk == null:
+		return {}
+	var generation_result: Dictionary = GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk, false)
 	var topology_layers: Dictionary = generation_result.get("topology_layers", {})
 	if not topology_layers.is_empty():
 		return topology_layers
-	var logic_grid: Array = generation_result.get("logic_grid", [])
-	if session != null and not logic_grid.is_empty():
-		return session.topology_layers_from_logic_grid(logic_grid)
 	return {}
 
 
@@ -143,9 +144,32 @@ func _topology_layers_from_fallback(chunk_coord: Vector3i) -> Dictionary:
 	topology_only_fallback_count += 1
 	if allow_full_neighbor_generation:
 		full_neighbor_generation_count += 1
-		var result: Dictionary = session.generate_chunk_generation_result(chunk_coord, false, false)
+		var world_chunk: GeneratedWorldChunk = session.generate_world_chunk(chunk_coord, false, false)
+		var result: Dictionary = GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk, false)
 		return result.get("topology_layers", {})
 	return session.generate_topology_layers_only(chunk_coord)
+
+
+func _load_sample_cache(cache_key: String) -> Dictionary:
+	if sample_cache == null:
+		return {}
+	if typeof(sample_cache) == TYPE_OBJECT and sample_cache.has_method("load_topology_layers"):
+		return sample_cache.call("load_topology_layers", cache_key)
+	if typeof(sample_cache) == TYPE_DICTIONARY:
+		var dictionary_cache: Dictionary = sample_cache
+		if dictionary_cache.has(cache_key):
+			return dictionary_cache[cache_key]
+	return {}
+
+
+func _store_sample_cache(cache_key: String, topology_layers: Dictionary, residency_key: String) -> void:
+	if sample_cache == null:
+		return
+	if typeof(sample_cache) == TYPE_OBJECT and sample_cache.has_method("store_topology_layers"):
+		sample_cache.call("store_topology_layers", cache_key, topology_layers, residency_key)
+	elif typeof(sample_cache) == TYPE_DICTIONARY:
+		var dictionary_cache: Dictionary = sample_cache
+		dictionary_cache[cache_key] = topology_layers
 
 
 static func world_cell_owner_chunk_coord(

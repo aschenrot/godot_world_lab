@@ -1,6 +1,7 @@
 extends SceneTree
 
 const ChunkProviderScript := preload("res://scripts/chunk_provider.gd")
+const FormationSampleCacheScript := preload("res://scripts/world_generation/formation/formation_sample_cache.gd")
 const GeneratedChunkCacheKeyScript := preload("res://scripts/world_generation/cache/generated_chunk_cache_key.gd")
 const GeneratedChunkCachePolicyScript := preload("res://scripts/world_generation/cache/generated_chunk_cache_policy.gd")
 
@@ -11,8 +12,10 @@ func _initialize() -> void:
 	test_cache_key_includes_world_definition_identity()
 	test_chunk_cache_identity_prevents_product_and_definition_collisions()
 	test_chunk_cache_evicts_oldest_record_when_entry_limit_is_exceeded()
+	test_chunk_cache_legacy_records_do_not_evict_identity_records()
 	test_cache_policy_rejects_incomplete_identity()
 	test_provider_cache_records_generated_identity()
+	test_formation_sample_cache_lru_eviction()
 	test_provider_formation_sample_cache_is_bounded()
 	quit(1 if failed else 0)
 
@@ -92,18 +95,18 @@ func test_chunk_cache_identity_prevents_product_and_definition_collisions() -> v
 		Vector3i(0, 0, 0),
 		PackedStringArray(["generated_world_chunk"])
 	)
-	var generation_result := _sample_generation_result("identity_a")
+	var world_chunk := _sample_world_chunk(identity_a, "identity_a")
 
-	cache.store_generation_result_for_identity(identity_a, generation_result)
+	cache.store_world_chunk_for_identity(identity_a, world_chunk)
 
 	_assert(cache.has_identity(identity_a), "ChunkCache finds stored generated identity")
 	_assert(not cache.has_identity(different_definition), "ChunkCache misses different world definition hash")
 	_assert(not cache.has_identity(different_products), "ChunkCache misses different requested product set")
 	_assert(not cache.has_identity(different_settings), "ChunkCache misses different generation settings hash")
 	_assert(
-		_variant_signature(cache.load_generation_result_for_identity(identity_a))
-		== _variant_signature(generation_result),
-		"ChunkCache loads generation result for matching generated identity"
+		cache.load_world_chunk_for_identity(identity_a).generated_truth_signature_hash()
+		== world_chunk.generated_truth_signature_hash(),
+		"ChunkCache loads canonical world chunk for matching generated identity"
 	)
 
 
@@ -115,15 +118,30 @@ func test_chunk_cache_evicts_oldest_record_when_entry_limit_is_exceeded() -> voi
 	var identity_b := _identity("cache_world", 3, 111, 222, Vector3i(1, 0, 0), PackedStringArray(["generated_world_chunk"]))
 	var identity_c := _identity("cache_world", 3, 111, 222, Vector3i(2, 0, 0), PackedStringArray(["generated_world_chunk"]))
 
-	cache.store_generation_result_for_identity(identity_a, _sample_generation_result("identity_a"))
-	cache.store_generation_result_for_identity(identity_b, _sample_generation_result("identity_b"))
-	cache.load_generation_result_for_identity(identity_a)
-	cache.store_generation_result_for_identity(identity_c, _sample_generation_result("identity_c"))
+	cache.store_world_chunk_for_identity(identity_a, _sample_world_chunk(identity_a, "identity_a"))
+	cache.store_world_chunk_for_identity(identity_b, _sample_world_chunk(identity_b, "identity_b"))
+	cache.load_world_chunk_for_identity(identity_a)
+	cache.store_world_chunk_for_identity(identity_c, _sample_world_chunk(identity_c, "identity_c"))
 
 	_assert(cache.entry_count() == 2, "ChunkCache respects policy max_entries")
 	_assert(cache.has_identity(identity_a), "ChunkCache keeps recently accessed identity")
 	_assert(not cache.has_identity(identity_b), "ChunkCache evicts oldest identity")
 	_assert(cache.has_identity(identity_c), "ChunkCache stores newest identity")
+
+
+func test_chunk_cache_legacy_records_do_not_evict_identity_records() -> void:
+	var Cache := load("res://scripts/chunk_cache.gd")
+	var cache: RefCounted = Cache.new()
+	cache.cache_policy = GeneratedChunkCachePolicyScript.from_parts(true, true, true, {}, 1)
+	var identity_a := _identity("cache_world", 3, 111, 222, Vector3i(0, 0, 0), PackedStringArray(["generated_world_chunk"]))
+
+	cache.store_world_chunk_for_identity(identity_a, _sample_world_chunk(identity_a, "identity_a"))
+	cache.store_generation_result(Vector3i(10, 0, 0), 3, 222, _sample_generation_result("legacy_a"))
+	cache.store_generation_result(Vector3i(11, 0, 0), 3, 222, _sample_generation_result("legacy_b"))
+
+	_assert(cache.has_identity(identity_a), "legacy cache namespace does not evict generated identity entries")
+	_assert(cache.identity_entry_count() == 1, "identity namespace keeps its own max entry limit")
+	_assert(cache.legacy_entry_count() == 1, "legacy namespace applies its own max entry limit")
 
 
 func test_cache_policy_rejects_incomplete_identity() -> void:
@@ -190,6 +208,19 @@ func test_provider_cache_records_generated_identity() -> void:
 	provider.free()
 
 
+func test_formation_sample_cache_lru_eviction() -> void:
+	var sample_cache: RefCounted = FormationSampleCacheScript.from_max_entries(2)
+	sample_cache.store_topology_layers("topology:a", {"solid": [[1]]}, "a")
+	sample_cache.store_topology_layers("topology:b", {"solid": [[2]]}, "b")
+	sample_cache.load_topology_layers("topology:a")
+	sample_cache.store_topology_layers("topology:c", {"solid": [[3]]}, "c")
+
+	_assert(sample_cache.has_topology_layers("topology:a"), "FormationSampleCache keeps recently touched entry")
+	_assert(not sample_cache.has_topology_layers("topology:b"), "FormationSampleCache evicts least recently used entry")
+	_assert(sample_cache.has_topology_layers("topology:c"), "FormationSampleCache keeps newest entry")
+	_assert(int(sample_cache.to_diagnostics().get("eviction_count", 0)) == 1, "FormationSampleCache records eviction count")
+
+
 func test_provider_formation_sample_cache_is_bounded() -> void:
 	var provider: Node = ChunkProviderScript.new()
 	provider.use_chunk_cache = false
@@ -200,11 +231,17 @@ func test_provider_formation_sample_cache_is_bounded() -> void:
 	provider.wall_threshold_percent = 34
 	provider.debug_force_chunk_border = false
 
-	provider._load_chunk_content(Vector3i(0, 0, 0))
+	provider.sample_world_topology_cell(Vector2i(-1, 0), "solid", 0)
+	provider.sample_world_topology_cell(Vector2i(16, 0), "solid", 0)
+	provider.sample_world_topology_cell(Vector2i(0, 16), "solid", 0)
 
 	_assert(
 		provider.formation_sample_cache_count() <= 2,
 		"provider formation sample cache respects configured max entries"
+	)
+	_assert(
+		int(provider.formation_sample_cache.to_diagnostics().get("eviction_count", 0)) > 0,
+		"provider formation sample cache records bounded LRU evictions"
 	)
 	provider.free()
 
@@ -244,6 +281,23 @@ func _sample_generation_result(marker_type: String) -> Dictionary:
 		"debug_markers": [{"type": marker_type}],
 		"diagnostics": {"authority": "cache_identity_smoke"},
 	}
+
+
+func _sample_world_chunk(identity: GeneratedChunkIdentity, marker_type: String) -> GeneratedWorldChunk:
+	var bounds := {
+		"chunk_coord": identity.chunk_coord,
+		"domain_descriptor": WorldSpace.DOMAIN_CELL_GRID_2D,
+		"owned_cell_bounds": Rect2i(Vector2i.ZERO, Vector2i(2, 2)),
+		"sample_cell_bounds": Rect2i(Vector2i(-1, -1), Vector2i(4, 4)),
+		"chunk_size_cells": 2,
+		"halo_cells": 1,
+	}
+	return GeneratedWorldChunk.from_legacy_generation_result(
+		identity,
+		bounds,
+		_sample_generation_result(marker_type),
+		{"authority": "cache_identity_smoke"}
+	)
 
 
 func _variant_signature(value: Variant) -> int:

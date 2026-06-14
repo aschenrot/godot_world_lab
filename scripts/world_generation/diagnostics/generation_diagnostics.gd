@@ -113,8 +113,8 @@ static func product_signature_map_from_world_chunk(world_chunk: Variant) -> Dict
 		"topology_projections": GeneratedChunkIdentity.stable_hash_variant(world_chunk.topology_projections),
 		"topology_projection_set": _dictionary_product_signature(world_chunk.topology_projection_set),
 		"formation_products": _dictionary_product_signature(world_chunk.formation_products),
-		"generation_diagnostics": GeneratedChunkIdentity.stable_hash_variant(world_chunk.generation_diagnostics),
-		"stage_results": GeneratedChunkIdentity.stable_hash_variant(world_chunk.stage_results),
+		"generation_diagnostics": GeneratedChunkIdentity.stable_hash_report_variant(world_chunk.generation_diagnostics),
+		"stage_results": GeneratedChunkIdentity.stable_hash_report_variant(world_chunk.stage_results),
 		"validation_issues": GeneratedChunkIdentity.stable_hash_variant(world_chunk.validation_issues),
 		"legacy_generation_result": GeneratedChunkIdentity.stable_hash_variant(world_chunk.legacy_generation_result),
 	}
@@ -185,7 +185,7 @@ func to_dictionary() -> Dictionary:
 
 func signature_hash() -> int:
 	var h := GeneratedChunkIdentity.stable_hash_string("GenerationDiagnostics:v1")
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(_payload_dictionary()))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_report_variant(_payload_dictionary()))
 	return h
 
 

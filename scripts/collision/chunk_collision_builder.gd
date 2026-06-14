@@ -41,36 +41,70 @@ func build_chunk_collision(
 	cells_per_chunk: int,
 	options: Dictionary = {}
 ) -> StaticBody3D:
+	var cell_size_meters: float = chunk_edge_meters / float(maxi(cells_per_chunk, 1))
+	var plan_options := options.duplicate(true)
+	plan_options["cell_size_meters"] = cell_size_meters
+	plan_options["collision_height_meters"] = float(options.get("collision_height_meters", DEFAULT_COLLISION_HEIGHT_METERS))
+	var collision_plan := build_collision_plan(chunk_coord, collision_source, plan_options)
+	return build_chunk_collision_from_plan(
+		chunk_coord,
+		collision_source,
+		collision_plan,
+		chunk_edge_meters,
+		cells_per_chunk,
+		plan_options
+	)
+
+
+func build_chunk_collision_from_plan(
+	chunk_coord: Vector3i,
+	collision_source: Dictionary,
+	collision_plan: Dictionary,
+	chunk_edge_meters: float,
+	cells_per_chunk: int,
+	options: Dictionary = {}
+) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.name = "ChunkCollision"
 	body.set_meta("chunk_coord", chunk_coord)
 	body.set_meta("source_product_type", collision_source.get("product_type", ""))
-	body.set_meta("collision_backend", "box_per_collision_policy_cell")
+	body.set_meta("collision_backend", "merged_collision_rectangles")
 	body.set_meta("host_adapter_contract", host_adapter_contract())
 
-	var collision_plan := build_collision_plan(chunk_coord, collision_source, options)
+	var cell_size_meters: float = chunk_edge_meters / float(maxi(cells_per_chunk, 1))
 	body.set_meta("collision_plan", collision_plan)
 
-	var cell_size_meters: float = chunk_edge_meters / float(maxi(cells_per_chunk, 1))
-	var shape_size := Vector3(
-		cell_size_meters,
-		DEFAULT_COLLISION_HEIGHT_METERS,
-		cell_size_meters
-	)
 	var collision_count := 0
 
-	for cell in collision_plan.get("blocking_cells", []):
-		var data: Dictionary = cell
-		var coord: Vector2i = data["cell"]
+	for box in collision_plan.get("merged_boxes", []):
+		var data: Dictionary = box
+		var rect: Rect2i = data["rect"]
 		var shape := BoxShape3D.new()
-		shape.size = shape_size
+		shape.size = Vector3(
+			float(rect.size.x) * cell_size_meters,
+			float(options.get("collision_height_meters", DEFAULT_COLLISION_HEIGHT_METERS)),
+			float(rect.size.y) * cell_size_meters
+		)
 		var shape_node := CollisionShape3D.new()
-		shape_node.name = "CellCollision_%s_%s" % [coord.x, coord.y]
+		shape_node.name = "MergedCollision_%s_%s_%s_%s" % [
+			rect.position.x,
+			rect.position.y,
+			rect.size.x,
+			rect.size.y,
+		]
 		shape_node.shape = shape
-		shape_node.position = _cell_collision_origin(coord, cell_size_meters)
-		shape_node.set_meta("cell", coord)
+		shape_node.transform = data.get(
+			"world_space_shape_transform",
+			_rect_collision_transform(
+				rect,
+				cell_size_meters,
+				float(options.get("collision_height_meters", DEFAULT_COLLISION_HEIGHT_METERS))
+			)
+		)
+		shape_node.set_meta("rect", rect)
 		shape_node.set_meta("reason", data.get("reason", ""))
 		shape_node.set_meta("source_layer", data.get("source_layer", ""))
+		shape_node.set_meta("cell_count", int(data.get("cell_count", rect.size.x * rect.size.y)))
 		body.add_child(shape_node)
 		collision_count += 1
 
@@ -88,30 +122,27 @@ func build_collision_plan(
 	var solid_grid: Array = topology_layers.get(LAYER_SOLID, collision_source.get("logic_grid", []))
 	var water_grid: Array = topology_layers.get(LAYER_WATER, [])
 	var liquid_blocks := bool(options.get("liquid_blocks_movement", true))
+	var cell_size_meters := float(options.get("cell_size_meters", 1.0))
+	var collision_height_meters := float(options.get("collision_height_meters", DEFAULT_COLLISION_HEIGHT_METERS))
 	var source_consumed_fields := _collision_consumed_fields(collision_source)
 	var uses_logic_grid_compatibility_alias := (
 		not topology_layers.has(LAYER_SOLID)
 		and collision_source.has("logic_grid")
 	)
-	var blocking_cells: Array[Dictionary] = []
-	var solid_count := 0
-	var liquid_count := 0
-
-	for y in range(solid_grid.size()):
-		for x in range(int(solid_grid[y].size())):
-			var cell := Vector2i(x, y)
-			var blocks_solid := _grid_cell(solid_grid, cell) == 1
-			var blocks_liquid := liquid_blocks and _grid_cell(water_grid, cell) == 1
-			if blocks_solid:
-				solid_count += 1
-			if blocks_liquid:
-				liquid_count += 1
-			if blocks_solid or blocks_liquid:
-				blocking_cells.append({
-					"cell": cell,
-					"reason": "solid" if blocks_solid else "liquid_policy",
-					"source_layer": LAYER_SOLID if blocks_solid else LAYER_WATER,
-				})
+	var merge_payload := _native_collision_merge_payload(solid_grid, water_grid, liquid_blocks)
+	if merge_payload.is_empty() or not merge_payload.has("merged_boxes"):
+		merge_payload = _local_collision_merge_payload(solid_grid, water_grid, liquid_blocks)
+	var merged_boxes := _boxes_with_shape_transforms(
+		merge_payload.get("merged_boxes", []),
+		cell_size_meters,
+		collision_height_meters
+	)
+	var diagnostics: Dictionary = merge_payload.get("diagnostics", {})
+	diagnostics["source_has_topology_layers"] = collision_source.has("topology_layers")
+	diagnostics["source_has_logic_grid_alias"] = collision_source.has("logic_grid")
+	diagnostics["uses_logic_grid_compatibility_alias"] = uses_logic_grid_compatibility_alias
+	diagnostics["owns_generation_truth"] = false
+	diagnostics["source_consumed_fields"] = source_consumed_fields.duplicate()
 
 	return {
 		"product_type": "ChunkCollisionPlan",
@@ -119,22 +150,13 @@ func build_collision_plan(
 		"source_product_type": collision_source.get("product_type", ""),
 		"source_consumed_fields": source_consumed_fields,
 		"host_adapter_contract": host_adapter_contract(),
-		"blocking_cells": blocking_cells,
+		"merged_boxes": merged_boxes,
 		"policy": {
 			"solid_blocks_movement": true,
 			"liquid_blocks_movement": liquid_blocks,
 			"ground_visuals_block_movement": false,
 		},
-		"diagnostics": {
-			"blocking_cell_count": blocking_cells.size(),
-			"solid_blocking_cell_count": solid_count,
-			"liquid_blocking_cell_count": liquid_count,
-			"source_has_topology_layers": collision_source.has("topology_layers"),
-			"source_has_logic_grid_alias": collision_source.has("logic_grid"),
-			"uses_logic_grid_compatibility_alias": uses_logic_grid_compatibility_alias,
-			"owns_generation_truth": false,
-			"source_consumed_fields": source_consumed_fields.duplicate(),
-		},
+		"diagnostics": diagnostics,
 	}
 
 
@@ -163,6 +185,160 @@ func _cell_collision_origin(cell: Vector2i, cell_size_meters: float) -> Vector3:
 	)
 
 
+func _rect_collision_transform(
+	rect: Rect2i,
+	cell_size_meters: float,
+	collision_height_meters: float
+) -> Transform3D:
+	return Transform3D(
+		Basis.IDENTITY,
+		Vector3(
+			(float(rect.position.x) + float(rect.size.x) * 0.5) * cell_size_meters,
+			collision_height_meters * 0.5,
+			(float(rect.position.y) + float(rect.size.y) * 0.5) * cell_size_meters
+		)
+	)
+
+
+func _native_collision_merge_payload(
+	solid_grid: Array,
+	water_grid: Array,
+	liquid_blocks: bool
+) -> Dictionary:
+	if not ClassDB.class_exists("GodotGridTopologyMapper"):
+		return {}
+	var mapper := ClassDB.instantiate("GodotGridTopologyMapper") as Object
+	if mapper == null or not mapper.has_method("merged_collision_boxes_payload"):
+		return {}
+	var payload: Variant = mapper.call(
+		"merged_collision_boxes_payload",
+		solid_grid,
+		water_grid,
+		liquid_blocks
+	)
+	return payload if typeof(payload) == TYPE_DICTIONARY else {}
+
+
+func _local_collision_merge_payload(
+	solid_grid: Array,
+	water_grid: Array,
+	liquid_blocks: bool
+) -> Dictionary:
+	var width := maxi(_grid_width(solid_grid), _grid_width(water_grid))
+	var height := maxi(solid_grid.size(), water_grid.size())
+	var merged_boxes: Array[Dictionary] = []
+	var counts_by_reason := {}
+	var counts_by_layer := {}
+	var blocking_cell_seen := {}
+
+	_append_local_merged_boxes_for_group(
+		merged_boxes,
+		counts_by_reason,
+		counts_by_layer,
+		blocking_cell_seen,
+		solid_grid,
+		width,
+		height,
+		"solid",
+		LAYER_SOLID
+	)
+	if liquid_blocks:
+		_append_local_merged_boxes_for_group(
+			merged_boxes,
+			counts_by_reason,
+			counts_by_layer,
+			blocking_cell_seen,
+			water_grid,
+			width,
+			height,
+			"liquid_policy",
+			LAYER_WATER
+		)
+
+	var blocking_cell_count := blocking_cell_seen.size()
+	return {
+		"merged_boxes": merged_boxes,
+		"diagnostics": {
+			"backend": "local_greedy_rectangle_merge",
+			"blocking_cell_count": blocking_cell_count,
+			"merged_shape_count": merged_boxes.size(),
+			"merge_ratio": 0.0 if blocking_cell_count == 0 else float(merged_boxes.size()) / float(blocking_cell_count),
+			"counts_by_reason": counts_by_reason,
+			"counts_by_layer": counts_by_layer,
+		},
+	}
+
+
+func _append_local_merged_boxes_for_group(
+	merged_boxes: Array,
+	counts_by_reason: Dictionary,
+	counts_by_layer: Dictionary,
+	blocking_cell_seen: Dictionary,
+	grid: Array,
+	width: int,
+	height: int,
+	reason: String,
+	source_layer: String
+) -> void:
+	var visited := {}
+	for y in range(height):
+		for x in range(width):
+			var cell := Vector2i(x, y)
+			var key := _cell_key(cell)
+			if visited.has(key) or _grid_cell(grid, cell) == 0:
+				continue
+			var rect_width := 0
+			while x + rect_width < width \
+				and _grid_cell(grid, Vector2i(x + rect_width, y)) != 0 \
+				and not visited.has(_cell_key(Vector2i(x + rect_width, y))):
+				rect_width += 1
+			var rect_height := 1
+			var can_grow := true
+			while can_grow and y + rect_height < height:
+				for grow_x in range(x, x + rect_width):
+					var grow_cell := Vector2i(grow_x, y + rect_height)
+					if _grid_cell(grid, grow_cell) == 0 or visited.has(_cell_key(grow_cell)):
+						can_grow = false
+						break
+				if can_grow:
+					rect_height += 1
+			for mark_y in range(y, y + rect_height):
+				for mark_x in range(x, x + rect_width):
+					var mark_cell := Vector2i(mark_x, mark_y)
+					visited[_cell_key(mark_cell)] = true
+					blocking_cell_seen[_cell_key(mark_cell)] = true
+			var cell_count := rect_width * rect_height
+			_increment_count(counts_by_reason, reason, cell_count)
+			_increment_count(counts_by_layer, source_layer, cell_count)
+			merged_boxes.append({
+				"rect": Rect2i(Vector2i(x, y), Vector2i(rect_width, rect_height)),
+				"reason": reason,
+				"source_layer": source_layer,
+				"cell_count": cell_count,
+			})
+
+
+func _boxes_with_shape_transforms(
+	boxes: Array,
+	cell_size_meters: float,
+	collision_height_meters: float
+) -> Array[Dictionary]:
+	var enriched: Array[Dictionary] = []
+	for box in boxes:
+		if typeof(box) != TYPE_DICTIONARY:
+			continue
+		var data: Dictionary = box
+		var rect: Rect2i = data.get("rect", Rect2i())
+		var next_box := data.duplicate(true)
+		next_box["world_space_shape_transform"] = _rect_collision_transform(
+			rect,
+			cell_size_meters,
+			collision_height_meters
+		)
+		enriched.append(next_box)
+	return enriched
+
+
 func _collision_consumed_fields(collision_source: Dictionary) -> PackedStringArray:
 	var consumed_fields := PackedStringArray()
 	var topology_layers: Dictionary = collision_source.get("topology_layers", {})
@@ -184,3 +360,18 @@ func _grid_cell(grid: Array, cell: Vector2i) -> int:
 	):
 		return 0
 	return int(grid[cell.y][cell.x])
+
+
+func _grid_width(grid: Array) -> int:
+	var width := 0
+	for row in grid:
+		width = maxi(width, int(row.size()))
+	return width
+
+
+func _cell_key(cell: Vector2i) -> String:
+	return "%s:%s" % [cell.x, cell.y]
+
+
+func _increment_count(counts: Dictionary, key: String, amount: int) -> void:
+	counts[key] = int(counts.get(key, 0)) + amount

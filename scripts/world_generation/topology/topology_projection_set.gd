@@ -24,9 +24,11 @@ static func from_parts(
 static func from_legacy_topology_layers(
 	topology_layers: Dictionary,
 	bounds: Dictionary,
-	domain_descriptor: String
+	domain_descriptor: String,
+	p_metadata: Dictionary = {}
 ) -> RefCounted:
 	var projection_set: RefCounted = load(SELF_SCRIPT_PATH).new()
+	projection_set.metadata = p_metadata.duplicate(true)
 	for projection_id in _ordered_projection_ids(topology_layers):
 		projection_set.add_projection(TopologyProjectionScript.from_legacy_topology_layer(
 			projection_id,

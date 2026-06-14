@@ -168,7 +168,7 @@ func signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, stage_index)
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_string(status))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(emitted_fact_counts))
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(diagnostics))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_report_variant(diagnostics))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(issues))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(notes))
 	h = GeneratedChunkIdentity.mix_hash(h, working_set_signature_before)

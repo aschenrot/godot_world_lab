@@ -128,3 +128,17 @@ func signature_hash() -> int:
 
 func has_debug_flag(flag_id: String) -> bool:
 	return bool(debug_flags.get(flag_id, false))
+
+
+func requires_product(product_id: String) -> bool:
+	var normalized := product_id.strip_edges()
+	if normalized.is_empty():
+		return false
+	return requested_product_set.has(normalized)
+
+
+func wants_report_products() -> bool:
+	return requires_product("generation_diagnostics") \
+		or has_debug_flag("diagnostics_enabled") \
+		or has_debug_flag("profiling_enabled") \
+		or has_debug_flag("diagnostics_provenance_smoke")

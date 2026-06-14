@@ -248,6 +248,14 @@ func build_chunk_visual_from_instantiation_plan(
 	root.set_meta("visual_backend", instantiation_plan["visual_backend"])
 	root.set_meta("chunk_instantiation_plan", instantiation_plan)
 	root.set_meta("last_dirty_corner_count", 0)
+	root.set_meta("last_dirty_bucket_rebuild_count", 0)
+	root.set_meta("last_visual_plan_time_us", int(instantiation_plan.get("diagnostics", {}).get("visual_plan_time_us", 0)))
+	root.set_meta("last_visual_bucket_build_time_us", 0)
+	root.set_meta("last_visual_node_attach_time_us", 0)
+	root.set_meta("last_visual_bucket_count", 0)
+	root.set_meta("last_visual_instance_count", 0)
+	root.set_meta("last_visual_child_count", 0)
+	root.set_meta("last_visual_skipped_empty_tile_count", 0)
 	_rebuild_multimesh_buckets(root)
 
 	return root
@@ -277,6 +285,14 @@ func build_chunk_visual_array_mesh(
 	root.set_meta("visual_layer_count", int(visual_plan.get("visual_layers", []).size()))
 	root.set_meta("visual_backend", "array_mesh")
 	root.set_meta("last_dirty_corner_count", 0)
+	root.set_meta("last_dirty_bucket_rebuild_count", 0)
+	root.set_meta("last_visual_plan_time_us", 0)
+	root.set_meta("last_visual_bucket_build_time_us", 0)
+	root.set_meta("last_visual_node_attach_time_us", 0)
+	root.set_meta("last_visual_bucket_count", 1)
+	root.set_meta("last_visual_instance_count", 0)
+	root.set_meta("last_visual_child_count", 1)
+	root.set_meta("last_visual_skipped_empty_tile_count", 0)
 
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.name = "array_mesh_bucket"
@@ -304,6 +320,14 @@ func destroy_or_pool(chunk_root: Node3D, pool: Array[Node3D], max_pool_size: int
 	_remove_meta_if_present(chunk_root, "visual_backend")
 	_remove_meta_if_present(chunk_root, "chunk_instantiation_plan")
 	_remove_meta_if_present(chunk_root, "last_dirty_corner_count")
+	_remove_meta_if_present(chunk_root, "last_dirty_bucket_rebuild_count")
+	_remove_meta_if_present(chunk_root, "last_visual_plan_time_us")
+	_remove_meta_if_present(chunk_root, "last_visual_bucket_build_time_us")
+	_remove_meta_if_present(chunk_root, "last_visual_node_attach_time_us")
+	_remove_meta_if_present(chunk_root, "last_visual_bucket_count")
+	_remove_meta_if_present(chunk_root, "last_visual_instance_count")
+	_remove_meta_if_present(chunk_root, "last_visual_child_count")
+	_remove_meta_if_present(chunk_root, "last_visual_skipped_empty_tile_count")
 
 	if pool.size() < max_pool_size:
 		pool.append(chunk_root)
@@ -334,17 +358,23 @@ func update_visual_tiles(chunk_root: Node3D, visual_tile_data_array: Array) -> i
 		return 0
 
 	var tiles_by_corner: Dictionary = chunk_root.get_meta("visual_tiles_by_corner")
+	var affected_bucket_keys: Dictionary = {}
+	var catalog: RefCounted = chunk_root.get_meta("catalog", null)
 	for tile in visual_tile_data_array:
 		var data: Dictionary = tile
 		var key := _tile_storage_key(data)
+		if tiles_by_corner.has(key):
+			affected_bucket_keys[_bucket_key_for_tile(tiles_by_corner[key], catalog)] = true
 		if data["is_empty"]:
 			tiles_by_corner.erase(key)
 		else:
 			tiles_by_corner[key] = data
+			affected_bucket_keys[_bucket_key_for_tile(data, catalog)] = true
 
 	chunk_root.set_meta("visual_tiles_by_corner", tiles_by_corner)
 	chunk_root.set_meta("last_dirty_corner_count", visual_tile_data_array.size())
-	_rebuild_multimesh_buckets(chunk_root)
+	var rebuilt_bucket_count := _rebuild_multimesh_buckets(chunk_root, affected_bucket_keys)
+	chunk_root.set_meta("last_dirty_bucket_rebuild_count", rebuilt_bucket_count)
 	return visual_tile_data_array.size()
 
 
@@ -716,24 +746,25 @@ func _visual_grid_size_for_logic_grid(logic_grid: Array) -> Vector2i:
 	return Vector2i(width + 1, height + 1)
 
 
-func _rebuild_multimesh_buckets(root: Node3D) -> void:
-	_clear_children(root)
+func _rebuild_multimesh_buckets(root: Node3D, bucket_filter: Dictionary = {}) -> int:
+	var build_start_us := Time.get_ticks_usec()
+	if bucket_filter.is_empty():
+		_clear_children(root)
 	if not root.has_meta("catalog") or not root.has_meta("visual_tiles_by_corner"):
-		return
+		return 0
 
 	var catalog: RefCounted = root.get_meta("catalog")
 	var cell_size_meters: float = root.get_meta("cell_size_meters")
 	var visual_tiles_by_corner: Dictionary = root.get_meta("visual_tiles_by_corner")
 	var transforms_by_bucket: Dictionary = {}
 	var sample_tile_by_bucket: Dictionary = {}
+	var instance_total := 0
 
 	for storage_key in visual_tiles_by_corner:
 		var data: Dictionary = visual_tiles_by_corner[storage_key]
-		var asset_key: String = data["asset_key"]
-		var base_key: String = catalog.base_key_for_asset_key(asset_key)
-		var layer_id := String(data.get("layer_id", LAYER_SOLID))
-		var material_variant := String(data.get("material_variant", layer_id))
-		var bucket_key := "%s|%s|%s" % [layer_id, base_key, material_variant]
+		var bucket_key := _bucket_key_for_tile(data, catalog)
+		if not bucket_filter.is_empty() and not bucket_filter.has(bucket_key):
+			continue
 		if not transforms_by_bucket.has(bucket_key):
 			transforms_by_bucket[bucket_key] = []
 			sample_tile_by_bucket[bucket_key] = data
@@ -741,6 +772,8 @@ func _rebuild_multimesh_buckets(root: Node3D) -> void:
 
 	var bucket_keys: Array = transforms_by_bucket.keys()
 	bucket_keys.sort()
+	var rebuilt_bucket_count := 0
+	var attach_time_us := 0
 	for bucket_key in bucket_keys:
 		var sample_tile: Dictionary = sample_tile_by_bucket[bucket_key]
 		var source_asset_key: String = sample_tile["asset_key"]
@@ -756,14 +789,92 @@ func _rebuild_multimesh_buckets(root: Node3D) -> void:
 		for index in range(transforms.size()):
 			multimesh.set_instance_transform(index, transforms[index])
 
-		var instance := MultiMeshInstance3D.new()
-		instance.name = "%s_bucket" % bucket_key.replace("|", "_")
-		instance.multimesh = multimesh
-		if catalog.has_method("get_material_for_tile"):
-			instance.material_override = catalog.get_material_for_tile(sample_tile)
-		else:
-			instance.material_override = catalog.get_material(source_asset_key)
+		var attach_start_us := Time.get_ticks_usec()
+		_upsert_bucket_instance(root, String(bucket_key), multimesh, sample_tile, source_asset_key, catalog)
+		attach_time_us += Time.get_ticks_usec() - attach_start_us
+		instance_total += transforms.size()
+		rebuilt_bucket_count += 1
+
+	if not bucket_filter.is_empty():
+		for filtered_bucket_key in bucket_filter.keys():
+			if not transforms_by_bucket.has(filtered_bucket_key):
+				_remove_bucket_instance(root, String(filtered_bucket_key))
+				rebuilt_bucket_count += 1
+
+	root.set_meta("last_visual_bucket_build_time_us", Time.get_ticks_usec() - build_start_us)
+	root.set_meta("last_visual_node_attach_time_us", attach_time_us)
+	root.set_meta("last_visual_bucket_count", _bucket_child_count(root))
+	root.set_meta("last_visual_instance_count", _multimesh_instance_total(root))
+	root.set_meta("last_visual_child_count", root.get_child_count())
+	root.set_meta("last_visual_skipped_empty_tile_count", maxi(int(root.get_meta("visual_tile_count", 0)) - visual_tiles_by_corner.size(), 0))
+	return rebuilt_bucket_count
+
+
+func _bucket_key_for_tile(tile_data: Dictionary, catalog: RefCounted) -> String:
+	var asset_key: String = tile_data["asset_key"]
+	var base_key: String = catalog.base_key_for_asset_key(asset_key) if catalog != null else asset_key
+	var layer_id := String(tile_data.get("layer_id", LAYER_SOLID))
+	var material_variant := String(tile_data.get("material_variant", layer_id))
+	return "%s|%s|%s" % [layer_id, base_key, material_variant]
+
+
+func _bucket_node_name(bucket_key: String) -> String:
+	return "%s_bucket" % bucket_key.replace("|", "_")
+
+
+func _remove_bucket_instance(root: Node3D, bucket_key: String) -> void:
+	for child in root.get_children():
+		var node := child as Node
+		if node != null and String(node.get_meta("bucket_key", "")) == bucket_key:
+			root.remove_child(node)
+			node.free()
+
+
+func _upsert_bucket_instance(
+	root: Node3D,
+	bucket_key: String,
+	multimesh: MultiMesh,
+	sample_tile: Dictionary,
+	source_asset_key: String,
+	catalog: RefCounted
+) -> void:
+	var instance := _bucket_instance(root, bucket_key)
+	if instance == null:
+		instance = MultiMeshInstance3D.new()
+		instance.name = _bucket_node_name(bucket_key)
+		instance.set_meta("bucket_key", bucket_key)
 		root.add_child(instance)
+	instance.multimesh = multimesh
+	if catalog != null and catalog.has_method("get_material_for_tile"):
+		instance.material_override = catalog.get_material_for_tile(sample_tile)
+	elif catalog != null:
+		instance.material_override = catalog.get_material(source_asset_key)
+
+
+func _bucket_instance(root: Node3D, bucket_key: String) -> MultiMeshInstance3D:
+	for child in root.get_children():
+		var instance := child as MultiMeshInstance3D
+		if instance != null and String(instance.get_meta("bucket_key", "")) == bucket_key:
+			return instance
+	return null
+
+
+func _bucket_child_count(root: Node3D) -> int:
+	var count := 0
+	for child in root.get_children():
+		var instance := child as MultiMeshInstance3D
+		if instance != null and instance.has_meta("bucket_key"):
+			count += 1
+	return count
+
+
+func _multimesh_instance_total(root: Node3D) -> int:
+	var count := 0
+	for child in root.get_children():
+		var instance := child as MultiMeshInstance3D
+		if instance != null and instance.multimesh != null:
+			count += instance.multimesh.instance_count
+	return count
 
 
 func _build_array_mesh(tiles: Array, cell_size_meters: float) -> ArrayMesh:

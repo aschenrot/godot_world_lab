@@ -4,7 +4,6 @@ const CountingProviderScript := preload("res://tests/world_generation_migration_
 const StageDiagnosticsScript := preload("res://scripts/world_generation/diagnostics/stage_diagnostics.gd")
 const GenerationDiagnosticsScript := preload("res://scripts/world_generation/diagnostics/generation_diagnostics.gd")
 const GeneratedChunkReportScript := preload("res://scripts/world_generation/diagnostics/generated_chunk_report.gd")
-const LegacyFormationProductStageScript := preload("res://scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd")
 
 var failed: bool = false
 
@@ -15,6 +14,7 @@ func _initialize() -> void:
 	test_generated_chunk_report_exposes_human_readable_summary()
 	test_diagnostics_signatures_are_deterministic_for_same_generated_products()
 	test_generated_truth_signature_ignores_report_payloads()
+	test_generated_truth_signature_ignores_validation_issues()
 	test_product_signature_changes_when_generated_product_changes()
 	quit(1 if failed else 0)
 
@@ -28,7 +28,7 @@ func test_stage_diagnostics_from_stage_result_reports_status_counts_and_signatur
 
 	_assert(stage_diagnostics.is_valid(), "StageDiagnostics from stage result is valid")
 	_assert(
-		stage_diagnostics_data.get("stage_id", "") == LegacyChunkGenerationStage.STAGE_ID,
+		stage_diagnostics_data.get("stage_id", "") == NativeChunkGenerationStage.STAGE_ID,
 		"StageDiagnostics keeps stage id"
 	)
 	_assert(stage_diagnostics_data.get("status", "") == GenerationStageResult.STATUS_SUCCESS, "StageDiagnostics keeps stage status")
@@ -195,6 +195,23 @@ func test_generated_truth_signature_ignores_report_payloads() -> void:
 	provider.free()
 
 
+func test_generated_truth_signature_ignores_validation_issues() -> void:
+	var provider: Node = _configured_provider()
+	var world_chunk := _run_world_chunk_for_provider(provider, Vector3i(-3, 0, 3))
+	var mutated_chunk := world_chunk.duplicate_chunk()
+	mutated_chunk.validation_issues.append("report_only_validation_issue")
+
+	_assert(
+		world_chunk.generated_truth_signature_hash() == mutated_chunk.generated_truth_signature_hash(),
+		"GeneratedWorldChunk truth signature ignores validation/report issues"
+	)
+	_assert(
+		world_chunk.report_signature_hash() != mutated_chunk.report_signature_hash(),
+		"GeneratedWorldChunk report signature includes validation/report issues"
+	)
+	provider.free()
+
+
 func test_product_signature_changes_when_generated_product_changes() -> void:
 	var provider: Node = _configured_provider()
 	var world_chunk := _run_world_chunk_for_provider(provider, Vector3i(3, 0, -3))
@@ -237,24 +254,12 @@ func test_product_signature_changes_when_generated_product_changes() -> void:
 
 
 func _run_world_chunk_for_provider(provider: Node, chunk_coord: Vector3i) -> GeneratedWorldChunk:
-	var definition: WorldDefinition = provider._world_definition_for_generation()
-	var snapshot := definition.compile_snapshot()
-	var request := ChunkGenerationRequest.from_provider_request(
-		-1,
-		ChunkGenerationRequest.KIND_LOAD,
+	return provider._world_generation_session().generate_world_chunk(
 		chunk_coord,
-		16,
-		1,
-		snapshot.requested_product_set,
+		true,
+		true,
 		{"diagnostics_provenance_smoke": true}
 	)
-	var context := GenerationContext.from_snapshot_and_request(snapshot, request)
-	var pipeline := GenerationPipeline.from_stages([
-		LegacyChunkGenerationStage.from_provider(provider),
-		LegacyFormationProductStageScript.from_session(provider)
-	])
-	var working_set := pipeline.run(snapshot, context)
-	return GeneratedWorldChunk.from_working_set(working_set)
 
 
 func _configured_provider() -> Node:

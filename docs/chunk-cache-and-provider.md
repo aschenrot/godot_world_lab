@@ -28,7 +28,14 @@ from `_process()`. Request ids remain host-owned until completion.
 
 ## Memory Cache
 
-`scripts/chunk_cache.gd` stores:
+`scripts/chunk_cache.gd` keeps generated chunk identity records separate from
+legacy compatibility records. Identity records are keyed by the canonical
+generation identity, including chunk coordinate, generator version, settings
+hash, world definition hash, requested topology projections, and requested
+formation products. Legacy records remain available for compatibility APIs, but
+legacy-key traffic cannot evict canonical identity records.
+
+Legacy records store:
 
 ```text
 chunk_coord
@@ -51,12 +58,28 @@ renderer resources
 
 Changing `generator_version` changes the cache key and forces regeneration.
 
-The cache is bounded by `GeneratedChunkCachePolicy.max_entries` and evicts the
-least-recently loaded/stored record when a store would exceed that limit. The
-default policy keeps 256 entries. `scripts/chunk_provider.gd` also bounds
-`formation_sample_cache` through `formation_sample_cache_max_entries` and
-prunes it after generation/load paths; settings-hash changes still clear the
-sample cache immediately.
+Each namespace is bounded by `GeneratedChunkCachePolicy.max_entries` and evicts
+the least-recently loaded/stored record in that namespace when a store would
+exceed the limit. The default policy keeps 256 identity entries and 256 legacy
+entries.
+
+## Formation Sample Cache
+
+`scripts/world_generation/formation/formation_sample_cache.gd` is the bounded
+LRU cache used by formation halo sampling. It replaces the older plain
+dictionary sample cache so halo sampling has explicit residency and diagnostics.
+
+The sample cache:
+
+- touches entries on reads and stores
+- prunes by least-recent use
+- tracks `hit_count`, `miss_count`, and `eviction_count`
+- removes entries when chunk residency is unloaded
+- clears immediately on generation settings or world-definition hash changes
+
+`scripts/chunk_provider.gd` exposes the cache through diagnostics under
+`formation_sample_cache` and bounds it with
+`formation_sample_cache_max_entries`.
 
 Validation:
 

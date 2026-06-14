@@ -1,11 +1,9 @@
 extends GenerationStage
 
-class_name LegacyFormationProductStage
+class_name NativeFormationProductStage
 
-const STAGE_ID := "legacy_formation_product_stage"
-const SELF_SCRIPT_PATH := "res://scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd"
-const FormationHaloSamplerScript := preload("res://scripts/world_generation/formation/formation_halo_sampler.gd")
-const FormationLayerBuilderScript := preload("res://scripts/world_generation/formation/formation_layer_builder.gd")
+const STAGE_ID := "native_formation_product_stage"
+const SELF_SCRIPT_PATH := "res://scripts/world_generation/pipeline/stages/native_formation_product_stage.gd"
 const FormationProductSetScript := preload("res://scripts/world_generation/formation/formation_product_set.gd")
 
 var session: Object = null
@@ -18,7 +16,7 @@ static func from_session(p_session: Object) -> GenerationStage:
 
 func configure_for_session(p_session: Object) -> GenerationStage:
 	session = p_session
-	configure(STAGE_ID, GenerationStage.CATEGORY_FORMATION, true, {"compatibility_mode": true})
+	configure(STAGE_ID, GenerationStage.CATEGORY_FORMATION, true, {"native_backend": "godot_grid"})
 	return self
 
 
@@ -33,9 +31,7 @@ func can_run(
 ) -> bool:
 	return super.can_run(snapshot, context, working_set) \
 		and session != null \
-		and session.has_method("identity_for_chunk") \
-		and session.has_method("generate_topology_layers_only") \
-		and session.has_method("effective_chunk_size_cells")
+		and session.has_method("generate_native_formation_layer")
 
 
 func _run(
@@ -53,25 +49,35 @@ func _run(
 		)
 		missing_result.set_diagnostic("missing_topology_dependencies", missing_dependencies.duplicate())
 		return missing_result
+
 	var topology_layers: Dictionary = topology_selection.get("topology_layers", {})
 	if topology_layers.is_empty():
 		return GenerationStageResult.failed(stage_id, stage_category, "missing_requested_topology_layers_for_formation")
 
-	var sampling_context := _formation_sampling_context()
-	var sampler: RefCounted = FormationHaloSamplerScript.from_context(
-		session,
-		context.chunk_size_cells,
-		sampling_context.get("loaded_chunks", {}),
-		sampling_context.get("chunk_cache", null),
-		bool(sampling_context.get("use_chunk_cache", false)),
-		sampling_context.get("sample_cache", {})
-	)
-	var builder: RefCounted = FormationLayerBuilderScript.from_sampler(session, sampler)
-	var formation_layers: Dictionary = builder.make_formation_layers(context.chunk_coord, topology_layers)
+	var formation_start_us := Time.get_ticks_usec()
+	var formation_layers: Dictionary = {}
+	for layer_id in topology_layers.keys():
+		var id := String(layer_id)
+		var layer_payload: Variant = session.call(
+			"generate_native_formation_layer",
+			context.chunk_coord,
+			id,
+			topology_layers[layer_id]
+		)
+		if typeof(layer_payload) != TYPE_DICTIONARY:
+			return GenerationStageResult.failed(stage_id, stage_category, "native_formation_layer_not_dictionary:%s" % id)
+		var layer_data: Dictionary = layer_payload
+		if not layer_data.has("formation_grid"):
+			return GenerationStageResult.failed(stage_id, stage_category, "native_formation_layer_missing_grid:%s" % id)
+		formation_layers[id] = layer_data
+	var formation_elapsed_us := Time.get_ticks_usec() - formation_start_us
+
+	var product_start_us := Time.get_ticks_usec()
 	var formation_product_set: Dictionary = FormationProductSetScript.from_legacy_formation_layers(
 		formation_layers,
 		_context_bounds(context)
 	).to_dictionary()
+	var product_elapsed_us := Time.get_ticks_usec() - product_start_us
 
 	working_set.set_store_value(
 		GenerationWorkingSet.STORE_FORMATION,
@@ -84,21 +90,22 @@ func _run(
 		formation_product_set
 	)
 	working_set.set_diagnostic("formation_product_stage", {
+		"backend": "godot_grid",
 		"requested_formation_products": snapshot.requested_formation_products.duplicate(),
 		"formation_product_dependencies": snapshot.formation_product_dependencies.duplicate(true),
 		"emitted_formation_product_ids": formation_product_set.get("product_ids", PackedStringArray()),
-		"topology_only_neighbor_generations": int(sampler.get("topology_only_fallback_count")),
-		"full_neighbor_generations": int(sampler.get("full_neighbor_generation_count")),
+		"native_formation_us": formation_elapsed_us,
 	})
 
 	var result := GenerationStageResult.success(stage_id, stage_category)
 	var product_ids: PackedStringArray = formation_product_set.get("product_ids", PackedStringArray())
 	result.increment_emitted_count("formation_product_set")
 	result.increment_emitted_count("formation_product", product_ids.size())
+	result.set_diagnostic("native_formation_us", formation_elapsed_us)
+	result.set_diagnostic("formation_product_set_build_us", product_elapsed_us)
 	result.set_diagnostic("requested_formation_products", snapshot.requested_formation_products.duplicate())
 	result.set_diagnostic("emitted_formation_product_ids", product_ids.duplicate())
-	result.set_diagnostic("topology_only_neighbor_generations", int(sampler.get("topology_only_fallback_count")))
-	result.set_diagnostic("full_neighbor_generations", int(sampler.get("full_neighbor_generation_count")))
+	result.set_diagnostic("native_backend", "godot_grid")
 	return result
 
 
@@ -127,32 +134,32 @@ func _requested_topology_layers_for_formation(
 	}
 
 
-func _formation_sampling_context() -> Dictionary:
-	if session != null and session.has_method("formation_sampling_context"):
-		var context_data: Variant = session.call("formation_sampling_context")
-		if typeof(context_data) == TYPE_DICTIONARY:
-			return context_data
-	return {
-		"loaded_chunks": {},
-		"chunk_cache": null,
-		"use_chunk_cache": false,
-		"sample_cache": {},
-	}
-
-
 func _requested_layer_ids(snapshot: WorldDefinitionSnapshot, available_layers: Dictionary) -> PackedStringArray:
+	var seen := {}
 	var layer_ids := PackedStringArray()
 	if snapshot == null or snapshot.requested_formation_products.is_empty():
 		for layer_id in available_layers.keys():
-			layer_ids.append(String(layer_id))
+			var available_id := String(layer_id)
+			if not seen.has(available_id):
+				seen[available_id] = true
+				layer_ids.append(available_id)
 	else:
 		for product_id in snapshot.requested_formation_products:
 			var dependencies: PackedStringArray = snapshot.formation_product_dependencies.get(
 				String(product_id),
 				PackedStringArray()
 			)
+			if dependencies.is_empty():
+				var requested_id := String(product_id)
+				if not seen.has(requested_id):
+					seen[requested_id] = true
+					layer_ids.append(requested_id)
+				continue
 			for dependency_id in dependencies:
-				layer_ids.append(String(dependency_id))
+				var id := String(dependency_id)
+				if not seen.has(id):
+					seen[id] = true
+					layer_ids.append(id)
 	layer_ids.sort()
 	return layer_ids
 

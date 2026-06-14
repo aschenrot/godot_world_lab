@@ -1,0 +1,534 @@
+{
+	"environment": {
+		"godot_version": "4.6.2-stable (official)",
+		"os_name": "macOS",
+		"processor_count": 8
+	},
+	"phase_order": [
+		"canonical_uncached_generated_world_chunk",
+		"adapter_generated_chunk_data_output",
+		"streaming_load_cache_miss",
+		"streaming_load_cache_hit",
+		"halo_topology_only_sampling",
+		"visual_realization",
+		"dirty_cell_visual_update",
+		"collision_realization"
+	],
+	"phases": {
+		"adapter_generated_chunk_data_output": {
+			"avg_us": 16460.75,
+			"counters": {
+				"adapter_output_count": 64,
+				"formation_product_sets_present": 64
+			},
+			"max_us": 17039,
+			"median_us": 16462,
+			"min_us": 16075,
+			"p95_us": 16729,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 16460.75,
+					"total_us": 1053488
+				},
+				"cache_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_generation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"topology_projection": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				}
+			},
+			"total_us": 1053488
+		},
+		"canonical_uncached_generated_world_chunk": {
+			"avg_us": 164962.1875,
+			"counters": {
+				"full_generation_calls": 72,
+				"validation_issue_count": 0
+			},
+			"max_us": 232348,
+			"median_us": 163283,
+			"min_us": 160281,
+			"p95_us": 169127,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation": {
+					"avg_us": 3405.0625,
+					"total_us": 217924
+				},
+				"native_generation": {
+					"avg_us": 1881.03125,
+					"total_us": 120386
+				},
+				"pipeline_validation": {
+					"avg_us": 43.40625,
+					"total_us": 2778
+				},
+				"topology_projection": {
+					"avg_us": 4631.6875,
+					"total_us": 296428
+				},
+				"visual_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				}
+			},
+			"total_us": 10557580
+		},
+		"collision_realization": {
+			"avg_us": 351.34375,
+			"counters": {
+				"blocking_cell_count": 4602,
+				"merge_ratio": 0.303780964797914,
+				"merged_shape_count": 1398
+			},
+			"max_us": 536,
+			"median_us": 349,
+			"min_us": 241,
+			"p95_us": 468,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 104.015625,
+					"total_us": 6657
+				},
+				"collision_plan": {
+					"avg_us": 247.25,
+					"total_us": 15824
+				},
+				"formation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_generation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"topology_projection": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				}
+			},
+			"total_us": 22486
+		},
+		"dirty_cell_visual_update": {
+			"avg_us": 805.015625,
+			"counters": {
+				"dirty_corner_count": 256,
+				"rebuilt_bucket_count": 75
+			},
+			"max_us": 939,
+			"median_us": 801,
+			"min_us": 701,
+			"p95_us": 894,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_generation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"topology_projection": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_build": {
+					"avg_us": 805.015625,
+					"total_us": 51521
+				},
+				"visual_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				}
+			},
+			"total_us": 51521
+		},
+		"halo_topology_only_sampling": {
+			"avg_us": 538.4375,
+			"counters": {
+				"full_neighbor_generations": 0,
+				"sample_cache_entries": 64,
+				"sample_cache_hits": 0,
+				"topology_only_fallbacks": 72
+			},
+			"max_us": 649,
+			"median_us": 533,
+			"min_us": 500,
+			"p95_us": 611,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_generation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"topology_projection": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				}
+			},
+			"total_us": 34460
+		},
+		"streaming_load_cache_hit": {
+			"avg_us": 94.046875,
+			"counters": {
+				"cache_diagnostics": {
+					"canonical_eviction_count": 0,
+					"canonical_hit_count": 64,
+					"canonical_identity_records": 72,
+					"canonical_miss_count": 0,
+					"canonical_record_shape_totals": {
+						"formation_product_count": 288,
+						"topology_projection_count": 288
+					},
+					"legacy_eviction_count": 0,
+					"legacy_hit_count": 0,
+					"legacy_miss_count": 0,
+					"legacy_records": 0
+				},
+				"cache_entries": 72,
+				"cache_hits": 64,
+				"cache_misses": 72,
+				"hit_adapter_conversion_count": 64
+			},
+			"max_us": 166,
+			"median_us": 92,
+			"min_us": 82,
+			"p95_us": 105,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_decode": {
+					"avg_us": 13.59375,
+					"total_us": 870
+				},
+				"cache_lookup": {
+					"avg_us": 13.46875,
+					"total_us": 862
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_generation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"topology_projection": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				}
+			},
+			"total_us": 6019
+		},
+		"streaming_load_cache_miss": {
+			"avg_us": 29304.640625,
+			"counters": {
+				"cache_diagnostics": {
+					"canonical_eviction_count": 0,
+					"canonical_hit_count": 0,
+					"canonical_identity_records": 72,
+					"canonical_miss_count": 0,
+					"canonical_record_shape_totals": {
+						"formation_product_count": 288,
+						"topology_projection_count": 288
+					},
+					"legacy_eviction_count": 0,
+					"legacy_hit_count": 0,
+					"legacy_miss_count": 0,
+					"legacy_records": 0
+				},
+				"cache_entries": 72,
+				"cache_hits": 0,
+				"cache_misses": 72,
+				"hit_adapter_conversion_count": 0
+			},
+			"max_us": 32112,
+			"median_us": 29221,
+			"min_us": 28876,
+			"p95_us": 29660,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 17.28125,
+					"total_us": 1106
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_generation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"topology_projection": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				}
+			},
+			"total_us": 1875497
+		},
+		"visual_realization": {
+			"avg_us": 16787.109375,
+			"counters": {
+				"bucket_count": 794,
+				"child_node_count": 794,
+				"instance_count": 22741,
+				"skipped_empty_tile_count": 0
+			},
+			"max_us": 17638,
+			"median_us": 16798,
+			"min_us": 16171,
+			"p95_us": 17370,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_generation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"topology_projection": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_build": {
+					"avg_us": 1586.96875,
+					"total_us": 101566
+				},
+				"visual_plan": {
+					"avg_us": 15199.96875,
+					"total_us": 972798
+				}
+			},
+			"total_us": 1074375
+		}
+	},
+	"product_type": "WorldGenerationBenchmarkReport",
+	"profile": "default",
+	"sample_count": 64,
+	"schema_version": 1,
+	"valid": true,
+	"warmup_count": 8
+}

@@ -77,6 +77,10 @@ func _assert_diagnostics(label: String) -> void:
 	_assert(runtime_budgets.get("visual_backend", "") == "multimesh", "%s budget records visual backend" % label)
 	_assert(int(runtime_budgets.get("dirty_cell_max_visual_corners", 0)) == 4, "%s budget records dirty-cell scope" % label)
 	_assert(
+		runtime_budgets.get("dirty_realization_scope", "") == "affected_multimesh_buckets",
+		"%s budget records dirty bucket realization scope" % label
+	)
+	_assert(
 		int(runtime_budgets.get("max_collision_shapes_per_chunk", 0)) * int(diagnostics["visual_roots"])
 		>= int(diagnostics["collision_shapes"]),
 		"%s collision shapes stay within per-chunk budget ceiling" % label

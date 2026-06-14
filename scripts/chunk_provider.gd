@@ -6,6 +6,7 @@ const LAYER_SOLID := "solid"
 const LAYER_WATER := "water"
 const LAYER_CLIFF := "cliff"
 const TOPOLOGY_LAYER_ORDER := [LAYER_GROUND, LAYER_WATER, LAYER_SOLID, LAYER_CLIFF]
+const FormationSampleCacheScript := preload("res://scripts/world_generation/formation/formation_sample_cache.gd")
 const FormationHaloSamplerScript := preload("res://scripts/world_generation/formation/formation_halo_sampler.gd")
 const FormationLayerBuilderScript := preload("res://scripts/world_generation/formation/formation_layer_builder.gd")
 const WorldGenerationSessionScript := preload("res://scripts/world_generation/runtime/world_generation_session.gd")
@@ -40,7 +41,10 @@ var completed_load_count: int = 0
 var completed_unload_count: int = 0
 var cache_hit_count: int = 0
 var cache_miss_count: int = 0
-var formation_sample_cache: Dictionary = {}
+var last_cache_lookup_us: int = 0
+var last_cache_decode_us: int = 0
+var last_cache_hit_required_adapter_conversion: bool = false
+var formation_sample_cache: RefCounted = null
 var _world_generation_session_instance: RefCounted = null
 var _world_generation_session_hash: int = -1
 
@@ -93,12 +97,14 @@ func cache_entry_count() -> int:
 
 
 func formation_sample_cache_count() -> int:
+	_ensure_formation_sample_cache()
 	return formation_sample_cache.size()
 
 
 func formation_sampling_context() -> Dictionary:
 	if use_chunk_cache:
 		_ensure_cache()
+	_ensure_formation_sample_cache()
 	return {
 		"loaded_chunks": loaded_chunks,
 		"chunk_cache": chunk_cache,
@@ -164,6 +170,8 @@ func _complete_request(request_id: int) -> void:
 		completed_load_count += 1
 	elif kind == "unload":
 		loaded_chunks.erase(_chunk_key(chunk_coord))
+		_ensure_formation_sample_cache()
+		formation_sample_cache.erase_residency(_chunk_key(chunk_coord))
 		streaming_node.provider_completed(request_id, chunk_coord.x, chunk_coord.y, chunk_coord.z)
 		completed_unload_count += 1
 
@@ -179,6 +187,8 @@ func _load_chunk_content(chunk_coord: Vector3i) -> void:
 		generation_diagnostics(),
 		false
 	)
+	if use_chunk_cache and last_cache_decode_us > 0:
+		last_cache_hit_required_adapter_conversion = true
 	_prune_formation_sample_cache()
 	loaded_chunks[_chunk_key(chunk_coord)] = {
 		"coord": chunk_coord,
@@ -196,23 +206,28 @@ func _load_or_generate_world_chunk(
 	chunk_coord: Vector3i,
 	cache_identity: GeneratedChunkIdentity
 ) -> GeneratedWorldChunk:
+	last_cache_lookup_us = 0
+	last_cache_decode_us = 0
+	last_cache_hit_required_adapter_conversion = false
 	if use_chunk_cache:
 		_ensure_cache()
-		if chunk_cache.has_identity(cache_identity):
+		var lookup_start_us := Time.get_ticks_usec()
+		if chunk_cache.has_world_chunk(cache_identity):
+			last_cache_lookup_us = Time.get_ticks_usec() - lookup_start_us
 			cache_hit_count += 1
-			var cached_result: Dictionary = chunk_cache.load_generation_result_for_identity(cache_identity)
-			return _world_chunk_from_compatibility_generation_result(
-				chunk_coord,
-				cached_result,
-				_formation_product_set_for_generation_result(chunk_coord, cached_result),
-				false
-			)
+			var decode_start_us := Time.get_ticks_usec()
+			var cached_world_chunk: GeneratedWorldChunk = chunk_cache.load_world_chunk_for_identity(cache_identity)
+			last_cache_decode_us = Time.get_ticks_usec() - decode_start_us
+			if cached_world_chunk != null:
+				return cached_world_chunk
+		else:
+			last_cache_lookup_us = Time.get_ticks_usec() - lookup_start_us
 
 		cache_miss_count += 1
 		var generated_world_chunk := _generate_world_chunk_internal(chunk_coord)
-		chunk_cache.store_generation_result_for_identity(
+		chunk_cache.store_world_chunk_for_identity(
 			cache_identity,
-			GeneratedChunkDataAdapter.generation_result_from_world_chunk(generated_world_chunk, false)
+			generated_world_chunk
 		)
 		return generated_world_chunk
 
@@ -233,19 +248,24 @@ func _ensure_cache() -> void:
 	chunk_cache = Cache.new()
 
 
+func _ensure_formation_sample_cache() -> void:
+	if formation_sample_cache == null:
+		formation_sample_cache = FormationSampleCacheScript.from_max_entries(formation_sample_cache_max_entries)
+	else:
+		formation_sample_cache.set_max_entries(formation_sample_cache_max_entries)
+
+
 func generate_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
-	return GeneratedChunkDataAdapter.logic_grid_from_generation_result(generate_chunk_generation_result(chunk_coord))
+	return GeneratedChunkDataAdapter.logic_grid_from_world_chunk(_generate_world_chunk_internal(chunk_coord))
 
 
 func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
-	var generation_result: Dictionary = _world_generation_session().generate_chunk_generation_result(
+	return _world_generation_session().generate_chunk_generation_result(
 		chunk_coord,
 		true,
 		true,
 		{"provider": "chunk_provider", "diagnostics_enabled": true}
 	)
-	_prune_formation_sample_cache()
-	return generation_result
 
 
 func _generate_chunk_generation_result_internal(chunk_coord: Vector3i) -> Dictionary:
@@ -271,7 +291,8 @@ func _generate_legacy_chunk_generation_result(chunk_coord: Vector3i) -> Dictiona
 
 
 func generate_chunk_debug_markers(chunk_coord: Vector3i) -> Array:
-	return generate_chunk_generation_result(chunk_coord)["debug_markers"]
+	var world_chunk := _generate_world_chunk_internal(chunk_coord)
+	return GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk, true).get("debug_markers", [])
 
 
 func effective_chunk_size_cells() -> int:
@@ -286,8 +307,13 @@ func make_generated_chunk_data(
 ) -> Dictionary:
 	if generation_result.is_empty():
 		if logic_grid.is_empty():
-			generation_result = _generate_chunk_generation_result_internal(chunk_coord)
-			logic_grid = GeneratedChunkDataAdapter.logic_grid_from_generation_result(generation_result, false)
+			var world_chunk := _generate_world_chunk_internal(chunk_coord)
+			return GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
+				world_chunk,
+				{},
+				generation_diagnostics(),
+				copy_output
+			)
 		else:
 			generation_result = _generation_result_from_logic_grid(logic_grid)
 
@@ -330,11 +356,22 @@ func make_generated_chunk_data(
 
 
 func make_formation_layers(chunk_coord: Vector3i, topology_layers: Dictionary) -> Dictionary:
-	return _formation_layer_builder().make_formation_layers(chunk_coord, topology_layers)
+	var formation_layers := {}
+	for layer_id in _ordered_layer_ids(topology_layers):
+		var id := String(layer_id)
+		var layer_grid: Array = topology_layers.get(id, [])
+		var layer_payload: Dictionary = _world_generation_session().generate_native_formation_layer(
+			chunk_coord,
+			id,
+			layer_grid
+		)
+		if layer_payload.has("formation_grid"):
+			formation_layers[id] = layer_payload
+	return formation_layers
 
 
 func make_formation_data(chunk_coord: Vector3i, logic_grid: Array) -> Dictionary:
-	return _formation_layer_builder().make_formation_data(chunk_coord, logic_grid)
+	return make_formation_layers(chunk_coord, {LAYER_SOLID: logic_grid}).get(LAYER_SOLID, {})
 
 
 func sample_final_logic_cell(chunk_coord: Vector3i, local_cell: Vector2i) -> int:
@@ -402,7 +439,7 @@ func _world_definition_for_generation() -> WorldDefinition:
 
 func _world_generation_settings_dictionary() -> Dictionary:
 	return {
-		"authority": TERRAIN_AUTHORITY,
+		"authority": "godot_grid_native",
 		"world_seed": world_seed,
 		"generator_version": generator_version,
 		"chunk_size_cells": chunk_size_cells,
@@ -468,7 +505,9 @@ func get_diagnostics() -> Dictionary:
 		"pending_requests": pending_request_count(),
 		"loaded_chunks": loaded_chunk_count(),
 		"cache_entries": cache_entry_count(),
+		"chunk_cache": chunk_cache.diagnostics() if chunk_cache != null and chunk_cache.has_method("diagnostics") else {},
 		"formation_sample_cache_entries": formation_sample_cache_count(),
+		"formation_sample_cache": formation_sample_cache.to_diagnostics(),
 		"cache_hits": cache_hit_count,
 		"cache_misses": cache_miss_count,
 		"completed_loads": completed_load_count,
@@ -487,25 +526,20 @@ func _world_generation_session() -> RefCounted:
 			self
 		)
 		_world_generation_session_hash = current_hash
+		_ensure_formation_sample_cache()
 		formation_sample_cache.clear()
 	return _world_generation_session_instance
 
 
 func _prune_formation_sample_cache() -> void:
-	var limit := maxi(formation_sample_cache_max_entries, 0)
-	if limit == 0:
-		formation_sample_cache.clear()
-		return
-	var keys := formation_sample_cache.keys()
-	keys.sort()
-	while keys.size() > limit:
-		var cache_key := String(keys.pop_front())
-		formation_sample_cache.erase(cache_key)
+	_ensure_formation_sample_cache()
+	formation_sample_cache.set_max_entries(formation_sample_cache_max_entries)
 
 
 func _formation_halo_sampler() -> RefCounted:
 	if use_chunk_cache:
 		_ensure_cache()
+	_ensure_formation_sample_cache()
 	return FormationHaloSamplerScript.from_context(
 		_world_generation_session(),
 		effective_chunk_size_cells(),
@@ -560,7 +594,23 @@ func _derive_topology_layers(terrain_cells: Array) -> Dictionary:
 
 
 func _terrain_diagnostics(terrain_cells: Array, topology_layers: Dictionary) -> Dictionary:
-	return _world_generation_session().terrain_diagnostics(terrain_cells, topology_layers)
+	var total_cells := 0
+	var solid_cells := 0
+	var liquid_cells := 0
+	for row in terrain_cells:
+		total_cells += row.size()
+		for cell in row:
+			if typeof(cell) == TYPE_DICTIONARY:
+				solid_cells += 1 if bool(cell.get("solid", false)) else 0
+				liquid_cells += 1 if bool(cell.get("liquid", false)) else 0
+	return {
+		"authority": "generated_chunk_data_adapter",
+		"terrain_cell_count": total_cells,
+		"solid_cell_count": solid_cells,
+		"liquid_cell_count": liquid_cells,
+		"topology_layer_count": topology_layers.size(),
+		"layer_ids": _ordered_layer_ids(topology_layers),
+	}
 
 
 func _generated_chunk_identity_for_chunk(chunk_coord: Vector3i) -> GeneratedChunkIdentity:
@@ -568,15 +618,61 @@ func _generated_chunk_identity_for_chunk(chunk_coord: Vector3i) -> GeneratedChun
 
 
 func _generation_result_from_logic_grid(logic_grid: Array) -> Dictionary:
-	return _world_generation_session().generation_result_from_logic_grid(logic_grid)
+	var topology_layers := _topology_layers_from_logic_grid(logic_grid)
+	var terrain_cells := _terrain_cells_from_logic_grid(logic_grid)
+	return GeneratedChunkDataAdapter.normalize_generation_result({
+		"terrain_cells": terrain_cells,
+		"topology_layers": topology_layers,
+		"debug_markers": [],
+		"diagnostics": _terrain_diagnostics(terrain_cells, topology_layers),
+	}, false)
 
 
 func _topology_layers_from_logic_grid(logic_grid: Array) -> Dictionary:
-	return _world_generation_session().topology_layers_from_logic_grid(logic_grid)
+	var ground: Array = []
+	var water: Array = []
+	var cliff: Array = []
+	for row in logic_grid:
+		var ground_row: Array = []
+		var water_row: Array = []
+		var cliff_row: Array = []
+		for _cell in row:
+			ground_row.append(1)
+			water_row.append(0)
+			cliff_row.append(0)
+		ground.append(ground_row)
+		water.append(water_row)
+		cliff.append(cliff_row)
+	return {
+		LAYER_GROUND: ground,
+		LAYER_SOLID: logic_grid.duplicate(true),
+		LAYER_WATER: water,
+		LAYER_CLIFF: cliff,
+	}
 
 
 func _terrain_cells_from_logic_grid(logic_grid: Array) -> Array:
-	return _world_generation_session().terrain_cells_from_logic_grid(logic_grid)
+	var terrain_cells: Array = []
+	for row in logic_grid:
+		var terrain_row: Array = []
+		for cell in row:
+			var solid := int(cell) != 0
+			terrain_row.append({
+				"height_percent": 50,
+				"liquid": false,
+				"solid": solid,
+				"walkable": not solid,
+				"surface": "ground",
+				"material": "rock" if solid else "ground",
+			})
+		terrain_cells.append(terrain_row)
+	return terrain_cells
+
+
+func _ordered_layer_ids(topology_layers: Dictionary) -> Array:
+	var ids := topology_layers.keys()
+	ids.sort()
+	return ids
 
 
 func _chunk_key(chunk_coord: Vector3i) -> String:

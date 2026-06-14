@@ -77,6 +77,11 @@ static func _validate_common(
 	_add_array_findings("requested_topology_projections", requested_topology_projections, false, issues, notes)
 	_add_array_findings("requested_formation_products", requested_formation_products, false, issues, notes)
 	_add_array_findings("requested_product_set", requested_product_set, true, issues, notes)
+	_add_formation_dependency_findings(
+		requested_formation_products,
+		WorldDefinitionSnapshot.dependencies_for_formation_products(requested_formation_products),
+		issues
+	)
 	return _validation_result(issues, notes)
 
 
@@ -102,6 +107,23 @@ static func _add_array_findings(
 			issues.append("duplicate_%s_%s" % [field_name, value])
 		else:
 			seen[value] = true
+
+
+static func _add_formation_dependency_findings(
+	requested_formation_products: PackedStringArray,
+	dependencies_by_product: Dictionary,
+	issues: PackedStringArray
+) -> void:
+	for product_id in requested_formation_products:
+		var normalized_product_id := String(product_id).strip_edges()
+		if normalized_product_id.is_empty():
+			continue
+		var dependencies: PackedStringArray = dependencies_by_product.get(
+			normalized_product_id,
+			PackedStringArray()
+		)
+		if dependencies.is_empty():
+			issues.append("unknown_formation_product_dependency_%s" % normalized_product_id)
 
 
 static func _validation_result(issues: PackedStringArray, notes: PackedStringArray) -> Dictionary:

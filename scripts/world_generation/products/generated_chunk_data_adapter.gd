@@ -8,8 +8,10 @@ const LAYER_SOLID := "solid"
 const LAYER_WATER := "water"
 const LAYER_CLIFF := "cliff"
 const LEGACY_TERRAIN_LAYER_KEY := "legacy_terrain_cells"
+const NATIVE_TERRAIN_LAYER_KEY := "native_terrain_cells"
 const SEMANTIC_WORLD_LAYER_SET_KEY := "semantic_world_layer_set"
 const SEMANTIC_LEGACY_TERRAIN_LAYER_KEY := "semantic_legacy_terrain_cells"
+const SEMANTIC_NATIVE_TERRAIN_LAYER_KEY := "semantic_native_terrain_cells"
 const FormationProductSetScript := preload("res://scripts/world_generation/formation/formation_product_set.gd")
 
 
@@ -31,7 +33,9 @@ static func generation_result_from_world_chunk(
 	var solid_grid: Array = topology_layers.get(LAYER_SOLID, [])
 	if solid_grid.is_empty():
 		solid_grid = legacy_result.get("logic_grid", [])
-	var debug_markers: Array = world_chunk.world_features.get("legacy_debug_markers", [])
+	var debug_markers: Array = world_chunk.world_features.get(GeneratedWorldChunk.NATIVE_DEBUG_MARKERS_KEY, [])
+	if debug_markers.is_empty():
+		debug_markers = world_chunk.world_features.get("legacy_debug_markers", [])
 	if debug_markers.is_empty():
 		debug_markers = legacy_result.get("debug_markers", [])
 	var diagnostics: Dictionary = _copy_dictionary(legacy_result.get("diagnostics", {}), copy_output)
@@ -117,7 +121,7 @@ static func generated_chunk_data_from_world_chunk(
 	var solid_formation: Dictionary = compatibility_formation_layers.get(LAYER_SOLID, {})
 	return {
 		"product_type": "GeneratedChunkData",
-		"authority": "local_lab_only",
+		"authority": "godot_grid_native",
 		"chunk_coord": world_chunk.identity.chunk_coord if world_chunk.identity != null else Vector3i.ZERO,
 		"generator_version": world_chunk.identity.world_definition_version if world_chunk.identity != null else 0,
 		"generation_settings_hash": world_chunk.identity.generation_settings_hash if world_chunk.identity != null else 0,
@@ -177,9 +181,16 @@ static func _topology_layers_from_world_chunk(
 	world_chunk: GeneratedWorldChunk,
 	copy_output: bool = true
 ) -> Dictionary:
-	var topology_layers := _topology_layers_from_projection_set(world_chunk.topology_projection_set, copy_output)
+	var topology_layers := _topology_layers_from_projection_set(
+		world_chunk.topology_projection_set,
+		copy_output
+	)
 	if not topology_layers.is_empty():
-		return topology_layers
+		return _filter_public_requested_topology_layers(
+			topology_layers,
+			world_chunk.topology_projection_set,
+			copy_output
+		)
 	return _copy_dictionary(world_chunk.topology_projections, copy_output)
 
 
@@ -211,6 +222,31 @@ static func _topology_layers_from_projection_set(
 	if typeof(legacy_layers) == TYPE_DICTIONARY:
 		return _copy_dictionary(legacy_layers, copy_output)
 	return {}
+
+
+static func _filter_public_requested_topology_layers(
+	topology_layers: Dictionary,
+	projection_set_data: Variant,
+	copy_output: bool = true
+) -> Dictionary:
+	if typeof(projection_set_data) != TYPE_DICTIONARY:
+		return _copy_dictionary(topology_layers, copy_output)
+	var projection_set_dictionary: Dictionary = projection_set_data
+	var metadata: Variant = projection_set_dictionary.get("metadata", {})
+	if typeof(metadata) != TYPE_DICTIONARY:
+		return _copy_dictionary(topology_layers, copy_output)
+	var metadata_dictionary: Dictionary = metadata
+	var requested_ids: PackedStringArray = _to_packed_string_array(
+		metadata_dictionary.get("requested_topology_projections", PackedStringArray())
+	)
+	if requested_ids.is_empty():
+		return _copy_dictionary(topology_layers, copy_output)
+	var filtered: Dictionary = {}
+	for projection_id in requested_ids:
+		var layer_id := String(projection_id)
+		if topology_layers.has(layer_id):
+			filtered[layer_id] = _copy_array(topology_layers[layer_id], copy_output)
+	return filtered
 
 
 static func _formation_product_set_from_world_chunk_or_layers(
@@ -298,11 +334,24 @@ static func _terrain_cells_from_world_layers(
 ) -> Array:
 	var layer_set_terrain_cells := _terrain_cells_from_layer_set(
 		world_layers.get(SEMANTIC_WORLD_LAYER_SET_KEY, {}),
-		LEGACY_TERRAIN_LAYER_KEY,
+		NATIVE_TERRAIN_LAYER_KEY,
 		copy_output
 	)
 	if not layer_set_terrain_cells.is_empty():
 		return layer_set_terrain_cells
+
+	var native_terrain_cells: Variant = world_layers.get(NATIVE_TERRAIN_LAYER_KEY, [])
+	if typeof(native_terrain_cells) == TYPE_ARRAY:
+		var native_terrain_array: Array = native_terrain_cells
+		if not native_terrain_array.is_empty():
+			return _copy_array(native_terrain_array, copy_output)
+
+	var semantic_native_terrain_cells := _terrain_cells_from_semantic_layer(
+		world_layers.get(SEMANTIC_NATIVE_TERRAIN_LAYER_KEY, {}),
+		copy_output
+	)
+	if not semantic_native_terrain_cells.is_empty():
+		return semantic_native_terrain_cells
 
 	var semantic_terrain_cells := _terrain_cells_from_semantic_layer(
 		world_layers.get(SEMANTIC_LEGACY_TERRAIN_LAYER_KEY, {}),
@@ -356,6 +405,19 @@ static func _grid_dimension_vec(grid: Array) -> Vector2i:
 	for row in grid:
 		width = maxi(width, int(row.size()))
 	return Vector2i(width, height)
+
+
+static func _to_packed_string_array(value: Variant) -> PackedStringArray:
+	if typeof(value) == TYPE_PACKED_STRING_ARRAY:
+		var packed_value: PackedStringArray = value
+		return packed_value.duplicate()
+	var result := PackedStringArray()
+	if typeof(value) != TYPE_ARRAY:
+		return result
+	var array_value: Array = value
+	for item in array_value:
+		result.append(String(item))
+	return result
 
 
 static func _copy_dictionary(value: Dictionary, copy_output: bool) -> Dictionary:

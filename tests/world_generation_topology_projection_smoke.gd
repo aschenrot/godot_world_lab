@@ -147,22 +147,10 @@ func test_adapter_preserves_topology_layers_and_logic_grid_from_projection_set()
 
 
 func _run_pipeline_for_provider(provider: Node, chunk_coord: Vector3i) -> GenerationWorkingSet:
-	var definition: WorldDefinition = provider._world_definition_for_generation()
-	var snapshot := definition.compile_snapshot()
-	var request := ChunkGenerationRequest.from_provider_request(
-		-1,
-		ChunkGenerationRequest.KIND_LOAD,
+	return provider._world_generation_session().run_working_set(
 		chunk_coord,
-		16,
-		1,
-		snapshot.requested_product_set,
-		{"topology_projection_smoke": true}
+		{"topology_projection_smoke": true, "diagnostics_enabled": true}
 	)
-	var context := GenerationContext.from_snapshot_and_request(snapshot, request)
-	var pipeline := GenerationPipeline.from_stages([
-		LegacyChunkGenerationStage.from_provider(provider)
-	])
-	return pipeline.run(snapshot, context)
 
 
 func _configured_provider() -> Node:

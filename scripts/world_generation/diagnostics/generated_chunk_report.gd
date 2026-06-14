@@ -69,7 +69,7 @@ func to_dictionary() -> Dictionary:
 
 func signature_hash() -> int:
 	var h := GeneratedChunkIdentity.stable_hash_string("GeneratedChunkReport:v1")
-	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(_payload_dictionary()))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_report_variant(_payload_dictionary()))
 	return h
 
 

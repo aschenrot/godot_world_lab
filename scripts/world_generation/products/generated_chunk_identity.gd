@@ -201,11 +201,42 @@ static func stable_hash_variant(value: Variant) -> int:
 			return stable_hash_string(str(value))
 
 
+static func stable_hash_report_variant(value: Variant) -> int:
+	return stable_hash_variant(report_variant_without_volatile_timing(value))
+
+
+static func report_variant_without_volatile_timing(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_DICTIONARY:
+			var dictionary_value: Dictionary = value
+			var cleaned: Dictionary = {}
+			var keys := dictionary_value.keys()
+			keys.sort()
+			for key in keys:
+				if _is_volatile_report_key(key):
+					continue
+				cleaned[key] = report_variant_without_volatile_timing(dictionary_value[key])
+			return cleaned
+		TYPE_ARRAY:
+			var array_value: Array = value
+			var cleaned_array: Array = []
+			for item in array_value:
+				cleaned_array.append(report_variant_without_volatile_timing(item))
+			return cleaned_array
+		_:
+			return value
+
+
 static func stable_hash_packed_string_array(values: PackedStringArray) -> int:
 	var h := stable_hash_string("PackedStringArray:%s" % values.size())
 	for index in range(values.size()):
 		h = mix_hash(h, stable_hash_string(String(values[index])))
 	return h
+
+
+static func _is_volatile_report_key(key: Variant) -> bool:
+	var key_string := String(key)
+	return key_string.ends_with("_us")
 
 
 static func stable_hash_ordered_string_ids(values: PackedStringArray) -> int:

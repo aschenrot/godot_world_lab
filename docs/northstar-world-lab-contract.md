@@ -50,9 +50,18 @@ created.
     `topology_layers["solid"]`
 - `GeneratedWorldChunk`
   - canonical data-only generation product
+  - runtime truth product for generation/cache/provider flow
+  - emitted by native `grid_generation` kernels through `godot_grid`
   - `TopologyProjectionSet` for requested topology projections
   - `FormationProductSet` for requested owned-halo formation products
+  - snapshot-derived internal topology requirements equal to requested public
+    topology projections plus formation product dependencies
+  - public adapters expose only requested public products, not internal
+    dependency projections
   - generated-truth signature independent of diagnostics/report verbosity
+- Legacy runtime generation dictionaries are removed from runtime flow.
+  `GeneratedChunkData` remains an adapter output for Godot realization, not
+  cache truth or generation truth.
 - `ChunkVisualPlan`
   - `chunk_coord`
   - `visual_layers`
@@ -114,13 +123,20 @@ Observed reality is diagnostic and preview data.
 - Generated chunk preview data.
 - Layered terrain correctness reports, including descriptor rotation, catalog
   transform correction, and final effective Godot rotation.
+- World-generation benchmark reports with schema version, environment metadata,
+  phase timings, counters, and non-gating baseline deltas.
+
+Observed diagnostics are report state, not generated truth. They belong in
+`report_signature_hash()`, while `generated_truth_signature_hash()` is limited
+to generation identity and generated products.
 
 ## Repository Ownership
 
 ```text
 Crystonix/grid
   owns topology truth: grid math/storage, dual-grid topology, visual tile
-  descriptors, dirty-cell invalidation, and the Godot descriptor adapter.
+  descriptors, dirty-cell invalidation, reusable generation/topology/formation
+  kernels, collision rectangle merging, and the Godot descriptor adapter.
 
 Crystonix/spatial_streaming
   owns lifecycle truth: world coordinates, chunk residency, streaming focus,
@@ -129,7 +145,8 @@ Crystonix/spatial_streaming
 Crystonix/godot_world_lab
   owns Godot realization: scenes, debug UI, generation experiments,
   mesh/material catalogs, chunk visual builders, movement playgrounds,
-  collision prototypes, placed-object prototypes, diagnostics, and previews.
+  collision prototypes and Godot `CollisionShape3D` realization,
+  placed-object prototypes, diagnostics, and previews.
 ```
 
 Runenwerk is not integrated in this slice. It remains the northstar reference

@@ -27,6 +27,14 @@ func _initialize() -> void:
 	var dirty_count: int = builder.update_dirty_cell(root_node, logic_grid, cell)
 	_assert(dirty_count == 4, "one logic cell reports four dirty visual corners")
 	_assert(root_node.get_meta("last_dirty_corner_count") == 4, "root records four dirty corners")
+	_assert(
+		int(root_node.get_meta("last_dirty_bucket_rebuild_count", 0)) > 0,
+		"dirty update records affected bucket rebuild count"
+	)
+	_assert(
+		int(root_node.get_meta("last_dirty_bucket_rebuild_count", 0)) <= 8,
+		"dirty update rebuilds bounded affected buckets instead of the whole chunk"
+	)
 
 	var full_plan: Dictionary = builder.build_visual_plan(chunk_coord, logic_grid)
 	var full_rebuild: Node3D = builder.build_chunk_visual(
@@ -66,4 +74,3 @@ func _assert(condition: bool, message: String) -> void:
 	if not condition:
 		failed = true
 		push_error("dirty_update_smoke failed: %s" % message)
-

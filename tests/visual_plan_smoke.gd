@@ -22,12 +22,7 @@ func _initialize() -> void:
 
 	var provider: Node = Node.new()
 	provider.set_script(load("res://scripts/chunk_provider.gd"))
-	var generation_result: Dictionary = provider.generate_chunk_generation_result(Vector3i(2, 0, -3))
-	var generated_data: Dictionary = provider.make_generated_chunk_data(
-		Vector3i(2, 0, -3),
-		generation_result["logic_grid"],
-		generation_result
-	)
+	var generated_data: Dictionary = provider.make_generated_chunk_data(Vector3i(2, 0, -3))
 	var generated_plan: Dictionary = builder.build_visual_plan_from_generated_chunk(generated_data)
 	_assert(generated_plan["tiles"].size() > 0, "generated chunk produces visual descriptors")
 	_assert(generated_plan["visual_layers"].size() >= 3, "generated descriptors are grouped by visual layer")

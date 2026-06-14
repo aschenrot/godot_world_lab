@@ -82,8 +82,6 @@ func _initialize() -> void:
 	test_unordered_hash_does_not_change_when_order_changes()
 	test_generated_chunk_identity_requested_products_are_unordered()
 	test_world_definition_and_snapshot_hash_semantics_match()
-	test_legacy_stage_calls_private_legacy_generation_method()
-	test_legacy_stage_accepts_topology_layers_without_logic_grid()
 	test_provider_public_generation_path_routes_through_pipeline()
 	test_pipeline_output_finalizes_into_generated_world_chunk()
 	test_generated_chunk_data_adapter_preserves_compatibility_fields()
@@ -222,8 +220,16 @@ func test_legacy_stage_accepts_topology_layers_without_logic_grid() -> void:
 func test_provider_public_generation_path_routes_through_pipeline() -> void:
 	var provider: Node = _configured_provider(CountingProviderScript)
 	var result: Dictionary = provider.generate_chunk_generation_result(Vector3i(0, 0, 0))
-	_assert(provider.private_legacy_call_count == 1, "provider public path routes through legacy pipeline stage")
-	_assert(_has_generation_result_shape(result), "provider public path returns compatibility generation result")
+	var legacy_result: Dictionary = provider._generate_legacy_chunk_generation_result(Vector3i(0, 0, 0))
+	_assert(provider.private_legacy_call_count == 1, "explicit legacy wrapper records migration call")
+	_assert(
+		result.get("error", "") == "legacy_generation_runtime_removed",
+		"provider public compatibility generation path returns explicit migration error"
+	)
+	_assert(
+		legacy_result.get("error", "") == "legacy_generation_runtime_removed",
+		"provider private legacy generation path returns explicit migration error"
+	)
 	provider.free()
 
 
@@ -235,22 +241,18 @@ func test_pipeline_output_finalizes_into_generated_world_chunk() -> void:
 	_assert(world_chunk != null, "pipeline finalizes into GeneratedWorldChunk")
 	_assert(world_chunk.identity != null, "GeneratedWorldChunk has identity")
 	_assert(world_chunk.identity.chunk_coord == chunk_coord, "GeneratedWorldChunk identity keeps chunk coord")
-	_assert(not world_chunk.legacy_generation_result.is_empty(), "GeneratedWorldChunk keeps legacy generation result during migration")
-	_assert(not world_chunk.legacy_generation_result.has("logic_grid"), "GeneratedWorldChunk keeps logic_grid out of legacy generation result")
+	_assert(world_chunk.legacy_generation_result.is_empty(), "GeneratedWorldChunk does not carry legacy generation result")
 	_assert(world_chunk.topology_projections.has("solid"), "GeneratedWorldChunk keeps solid topology projection")
-	_assert(world_chunk.stage_results.size() == 1, "GeneratedWorldChunk keeps stage result")
+	_assert(world_chunk.stage_results.size() == 2, "GeneratedWorldChunk keeps native generation and formation stage results")
 	provider.free()
 
 
 func test_generated_chunk_data_adapter_preserves_compatibility_fields() -> void:
 	var provider: Node = _configured_provider(ChunkProviderScript)
 	var chunk_coord := Vector3i(-1, 0, 1)
-	var generation_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
-	var generated_data: Dictionary = provider.make_generated_chunk_data(
-		chunk_coord,
-		generation_result["logic_grid"],
-		generation_result
-	)
+	var world_chunk: GeneratedWorldChunk = provider._generate_world_chunk_internal(chunk_coord)
+	var generation_result: Dictionary = GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
+	var generated_data: Dictionary = provider.make_generated_chunk_data(chunk_coord)
 	var required_fields := PackedStringArray([
 		"terrain_cells",
 		"topology_layers",
@@ -288,18 +290,18 @@ func test_generated_chunk_data_adapter_preserves_compatibility_fields() -> void:
 		"GeneratedChunkData derives logic_grid from topology_layers.solid"
 	)
 
-	var world_chunk: GeneratedWorldChunk = provider._world_chunk_from_compatibility_generation_result(
-		chunk_coord,
-		generation_result
-	)
 	var adapter_data := GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
 		world_chunk,
-		generated_data["formation_layers"],
+		{},
 		provider.generation_diagnostics()
 	)
 	for field_id in required_fields:
+		var adapter_signature := _report_variant_signature(adapter_data[field_id]) \
+			if field_id == "diagnostics" else _variant_signature(adapter_data[field_id])
+		var generated_signature := _report_variant_signature(generated_data[field_id]) \
+			if field_id == "diagnostics" else _variant_signature(generated_data[field_id])
 		_assert(
-			_variant_signature(adapter_data[field_id]) == _variant_signature(generated_data[field_id]),
+			adapter_signature == generated_signature,
 			"GeneratedChunkDataAdapter preserves %s without drift" % field_id
 		)
 	provider.free()
@@ -307,38 +309,30 @@ func test_generated_chunk_data_adapter_preserves_compatibility_fields() -> void:
 
 func test_pipeline_routed_generation_matches_old_legacy_generation_for_representative_chunks() -> void:
 	var provider: Node = _configured_provider(ChunkProviderScript)
+	var provider_b: Node = _configured_provider(ChunkProviderScript)
 	var representative_chunks: Array[Vector3i] = [
 		Vector3i(0, 0, 0),
 		Vector3i(1, 0, 0),
 		Vector3i(-1, 0, 1),
 	]
 	for chunk_coord in representative_chunks:
-		var legacy_result: Dictionary = provider._generate_legacy_chunk_generation_result(chunk_coord)
-		var pipeline_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
+		var chunk_a: GeneratedWorldChunk = provider._generate_world_chunk_internal(chunk_coord)
+		var chunk_b: GeneratedWorldChunk = provider_b._generate_world_chunk_internal(chunk_coord)
 		_assert(
-			_variant_signature(pipeline_result) == _variant_signature(legacy_result),
-			"pipeline-routed generation matches legacy generation for %s" % chunk_coord
+			chunk_a.generated_truth_signature_hash() == chunk_b.generated_truth_signature_hash(),
+			"native canonical generation is deterministic for %s" % chunk_coord
 		)
 	provider.free()
+	provider_b.free()
 
 
 func _run_pipeline_for_provider(provider: Node, chunk_coord: Vector3i) -> GenerationWorkingSet:
-	var definition: WorldDefinition = provider._world_definition_for_generation() if provider.has_method("_world_definition_for_generation") else _test_definition()
-	var snapshot := definition.compile_snapshot()
-	var request := ChunkGenerationRequest.from_provider_request(
-		-1,
-		ChunkGenerationRequest.KIND_LOAD,
-		chunk_coord,
-		16,
-		1,
-		snapshot.requested_product_set,
-		{"smoke_test": true}
-	)
-	var context := GenerationContext.from_snapshot_and_request(snapshot, request)
-	var pipeline := GenerationPipeline.from_stages([
-		LegacyChunkGenerationStage.from_provider(provider)
-	])
-	return pipeline.run(snapshot, context)
+	if provider.has_method("_world_generation_session"):
+		return provider._world_generation_session().run_working_set(
+			chunk_coord,
+			{"smoke_test": true, "diagnostics_enabled": true}
+		)
+	return GenerationWorkingSet.new()
 
 
 func _configured_provider(provider_script: Script) -> Node:
@@ -371,9 +365,9 @@ func _test_definition() -> WorldDefinition:
 	definition.world_seed = 99
 	definition.domain_descriptor = WorldSpace.DOMAIN_CELL_GRID_2D
 	definition.generation_settings = {"mode": "smoke", "threshold": 3}
-	definition.stage_ids = PackedStringArray([LegacyChunkGenerationStage.STAGE_ID, "diagnostic.stage"])
+	definition.stage_ids = PackedStringArray([NativeChunkGenerationStage.STAGE_ID, "diagnostic.stage"])
 	definition.layer_schema_ids = PackedStringArray(["ground", "water", "solid", "cliff"])
-	definition.feature_schema_ids = PackedStringArray(["legacy_debug_markers", "walkability_markers"])
+	definition.feature_schema_ids = PackedStringArray([GeneratedWorldChunk.NATIVE_DEBUG_MARKERS_KEY, "walkability_markers"])
 	definition.continuity_policy_ids = PackedStringArray(["owned_cells", "sample_halo"])
 	definition.requested_topology_projections = PackedStringArray(["ground", "water", "solid", "cliff"])
 	definition.requested_formation_products = PackedStringArray(["ground", "water", "solid", "cliff"])
@@ -391,6 +385,10 @@ func _has_generation_result_shape(generation_result: Dictionary) -> bool:
 
 func _variant_signature(value: Variant) -> int:
 	return GeneratedChunkIdentity.stable_hash_variant(value)
+
+
+func _report_variant_signature(value: Variant) -> int:
+	return GeneratedChunkIdentity.stable_hash_report_variant(value)
 
 
 func _assert(condition: bool, message: String) -> void:

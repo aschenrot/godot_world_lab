@@ -9,8 +9,7 @@ const LAYER_WATER := "water"
 const LAYER_CLIFF := "cliff"
 const TOPOLOGY_LAYER_ORDER := [LAYER_GROUND, LAYER_WATER, LAYER_SOLID, LAYER_CLIFF]
 const SELF_SCRIPT_PATH := "res://scripts/world_generation/runtime/world_generation_session.gd"
-const LegacyChunkGeneratorScript := preload("res://scripts/world_generation/legacy/legacy_chunk_generator.gd")
-const LegacyFormationProductStageScript := preload("res://scripts/world_generation/pipeline/stages/legacy_formation_product_stage.gd")
+const NativeFormationProductStageScript := preload("res://scripts/world_generation/pipeline/stages/native_formation_product_stage.gd")
 
 var settings: Dictionary = {}
 var settings_hash: int = 0
@@ -19,8 +18,8 @@ var full_generation_call_count: int = 0
 var topology_only_generation_call_count: int = 0
 
 var _snapshot_cache: Dictionary = {}
-var _legacy_generator_cache: Dictionary = {}
 var _pipeline_cache: Dictionary = {}
+var _native_grid_mapper_cache: Dictionary = {}
 
 
 static func from_settings(
@@ -46,22 +45,23 @@ func configure(
 
 func world_definition() -> WorldDefinition:
 	var definition := WorldDefinition.new()
-	definition.world_definition_id = "godot_lab_legacy_provider"
+	definition.world_definition_id = "godot_lab_native_provider"
 	definition.world_definition_version = _int_setting("generator_version", 2)
 	definition.world_seed = _int_setting("world_seed", 1337)
 	definition.domain_descriptor = WorldSpace.DOMAIN_CELL_GRID_2D
 	definition.generation_settings = settings.duplicate(true)
 	definition.stage_ids = PackedStringArray([
-		LegacyChunkGenerationStage.STAGE_ID,
-		LegacyFormationProductStageScript.STAGE_ID,
+		NativeChunkGenerationStage.STAGE_ID,
+		NativeFormationProductStageScript.STAGE_ID,
 	])
 	definition.layer_schema_ids = PackedStringArray([
+		GeneratedWorldChunk.NATIVE_TERRAIN_CELLS_KEY,
 		LAYER_GROUND,
 		LAYER_WATER,
 		LAYER_SOLID,
 		LAYER_CLIFF,
 	])
-	definition.feature_schema_ids = PackedStringArray(["legacy_debug_markers"])
+	definition.feature_schema_ids = PackedStringArray([GeneratedWorldChunk.NATIVE_DEBUG_MARKERS_KEY])
 	definition.continuity_policy_ids = PackedStringArray()
 	definition.requested_topology_projections = PackedStringArray([
 		LAYER_GROUND,
@@ -125,10 +125,9 @@ func context_for_chunk(
 
 func pipeline() -> GenerationPipeline:
 	if not _pipeline_cache.has(settings_hash):
-		var stage_provider: Object = legacy_stage_provider if legacy_stage_provider != null else self
 		_pipeline_cache[settings_hash] = GenerationPipeline.from_stages([
-			LegacyChunkGenerationStage.from_provider(stage_provider),
-			LegacyFormationProductStageScript.from_session(self)
+			NativeChunkGenerationStage.from_session(self),
+			NativeFormationProductStageScript.from_session(self)
 		])
 	return _pipeline_cache[settings_hash]
 
@@ -160,36 +159,91 @@ func generate_chunk_generation_result(
 	include_stage_results: bool = true,
 	debug_flags: Dictionary = {}
 ) -> Dictionary:
-	full_generation_call_count += 1
-	var world_chunk := generate_world_chunk(
-		chunk_coord,
-		copy_output,
-		include_stage_results,
-		debug_flags
-	)
-	return GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk, copy_output)
+	_legacy_runtime_removed("generate_chunk_generation_result", {
+		"chunk_coord": chunk_coord,
+		"copy_output": copy_output,
+		"include_stage_results": include_stage_results,
+		"debug_flags": debug_flags,
+	})
+	return _removed_generation_result("generate_chunk_generation_result")
 
 
 func legacy_chunk_generator() -> RefCounted:
-	if not _legacy_generator_cache.has(settings_hash):
-		_legacy_generator_cache[settings_hash] = LegacyChunkGeneratorScript.from_settings(settings)
-	return _legacy_generator_cache[settings_hash]
+	_legacy_runtime_removed("legacy_chunk_generator")
+	return null
 
 
 func legacy_generator_instance_id() -> int:
-	return legacy_chunk_generator().get_instance_id()
+	_legacy_runtime_removed("legacy_generator_instance_id")
+	return 0
 
 
 func _generate_legacy_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
-	return legacy_chunk_generator().generate_chunk_generation_result(chunk_coord)
+	_legacy_runtime_removed("_generate_legacy_chunk_generation_result", {"chunk_coord": chunk_coord})
+	return _removed_generation_result("_generate_legacy_chunk_generation_result")
 
 
 func generate_topology_layers_only(chunk_coord: Vector3i) -> Dictionary:
 	topology_only_generation_call_count += 1
-	if legacy_chunk_generator().has_method("generate_topology_layers_only"):
-		return legacy_chunk_generator().generate_topology_layers_only(chunk_coord)
-	var result: Dictionary = legacy_chunk_generator().generate_chunk_generation_result(chunk_coord)
-	return result.get("topology_layers", {})
+	var payload := generate_native_topology_layers_payload(chunk_coord)
+	return payload.get("topology_layers", {})
+
+
+func generate_native_chunk_payload(chunk_coord: Vector3i) -> Dictionary:
+	full_generation_call_count += 1
+	var mapper := _native_grid_mapper()
+	if mapper == null or not mapper.has_method("generate_lab_chunk_payload"):
+		return _native_backend_error("generate_lab_chunk_payload")
+	var payload_variant: Variant = mapper.call(
+		"generate_lab_chunk_payload",
+		chunk_coord,
+		_native_settings_dictionary()
+	)
+	if typeof(payload_variant) != TYPE_DICTIONARY:
+		return _native_backend_error("generate_lab_chunk_payload_not_dictionary")
+	return payload_variant
+
+
+func generate_native_topology_layers_payload(chunk_coord: Vector3i) -> Dictionary:
+	var mapper := _native_grid_mapper()
+	if mapper == null or not mapper.has_method("generate_lab_topology_layers_payload"):
+		return _native_backend_error("generate_lab_topology_layers_payload")
+	var payload_variant: Variant = mapper.call(
+		"generate_lab_topology_layers_payload",
+		chunk_coord,
+		_native_settings_dictionary()
+	)
+	if typeof(payload_variant) != TYPE_DICTIONARY:
+		return _native_backend_error("generate_lab_topology_layers_payload_not_dictionary")
+	return payload_variant
+
+
+func generate_native_formation_layer(
+	chunk_coord: Vector3i,
+	layer_id: String,
+	layer_grid: Array
+) -> Dictionary:
+	var mapper := _native_grid_mapper()
+	if mapper == null or not mapper.has_method("formation_layer_payload"):
+		return _native_backend_error("formation_layer_payload")
+	var payload_variant: Variant = mapper.call(
+		"formation_layer_payload",
+		chunk_coord,
+		_native_settings_dictionary(),
+		layer_id,
+		layer_grid
+	)
+	if typeof(payload_variant) != TYPE_DICTIONARY:
+		return _native_backend_error("formation_layer_payload_not_dictionary")
+	return payload_variant
+
+
+func native_generation_available() -> bool:
+	var mapper := _native_grid_mapper()
+	return mapper != null \
+		and mapper.has_method("generate_lab_chunk_payload") \
+		and mapper.has_method("generate_lab_topology_layers_payload") \
+		and mapper.has_method("formation_layer_payload")
 
 
 func formation_sampling_context() -> Dictionary:
@@ -224,6 +278,7 @@ func bounds_for_chunk(chunk_coord: Vector3i) -> Dictionary:
 func generation_diagnostics() -> Dictionary:
 	return {
 		"authority": TERRAIN_AUTHORITY,
+		"backend": "godot_grid",
 		"world_seed": _int_setting("world_seed", 1337),
 		"generator_version": _int_setting("generator_version", 2),
 		"chunk_size_cells": _int_setting("chunk_size_cells", 16),
@@ -247,55 +302,66 @@ func generation_diagnostics() -> Dictionary:
 
 
 func generate_base_terrain_cells(chunk_coord: Vector3i, size: int, solid_layer: Array) -> Array:
-	return legacy_chunk_generator().generate_base_terrain_cells(chunk_coord, size, solid_layer)
+	_legacy_runtime_removed("generate_base_terrain_cells", {"chunk_coord": chunk_coord, "size": size, "solid_layer_size": solid_layer.size()})
+	return []
 
 
 func make_terrain_cell(height_percent: int, liquid: bool, solid: bool) -> Dictionary:
-	return legacy_chunk_generator().make_terrain_cell(height_percent, liquid, solid)
+	_legacy_runtime_removed("make_terrain_cell", {"height_percent": height_percent, "liquid": liquid, "solid": solid})
+	return {}
 
 
 func set_cell_flags(cell: Dictionary, liquid: bool, solid: bool, height_percent: int = -1) -> Dictionary:
-	return legacy_chunk_generator().set_cell_flags(cell, liquid, solid, height_percent)
+	_legacy_runtime_removed("set_cell_flags", {"liquid": liquid, "solid": solid, "height_percent": height_percent})
+	return cell.duplicate(true)
 
 
 func generate_smoothed_solid_layer(chunk_coord: Vector3i, size: int) -> Array:
-	return legacy_chunk_generator().generate_smoothed_solid_layer(chunk_coord, size)
+	_legacy_runtime_removed("generate_smoothed_solid_layer", {"chunk_coord": chunk_coord, "size": size})
+	return []
 
 
 func carve_rooms_and_paths(chunk_coord: Vector3i, terrain_cells: Array, debug_markers: Array) -> void:
-	legacy_chunk_generator().carve_rooms_and_paths(chunk_coord, terrain_cells, debug_markers)
+	_legacy_runtime_removed("carve_rooms_and_paths", {"chunk_coord": chunk_coord})
 
 
 func repair_walkable_connectivity(terrain_cells: Array, debug_markers: Array) -> void:
-	legacy_chunk_generator().repair_walkable_connectivity(terrain_cells, debug_markers)
+	_legacy_runtime_removed("repair_walkable_connectivity", {"terrain_cell_rows": terrain_cells.size(), "debug_marker_count": debug_markers.size()})
 
 
 func balance_walkable_percent(terrain_cells: Array, debug_markers: Array) -> void:
-	legacy_chunk_generator().balance_walkable_percent(terrain_cells, debug_markers)
+	_legacy_runtime_removed("balance_walkable_percent", {"terrain_cell_rows": terrain_cells.size(), "debug_marker_count": debug_markers.size()})
 
 
 func derive_topology_layers(terrain_cells: Array) -> Dictionary:
-	return legacy_chunk_generator().derive_topology_layers(terrain_cells)
+	_legacy_runtime_removed("derive_topology_layers", {"terrain_cell_rows": terrain_cells.size()})
+	return {}
 
 
 func terrain_diagnostics(terrain_cells: Array, topology_layers: Dictionary) -> Dictionary:
-	return legacy_chunk_generator().terrain_diagnostics(terrain_cells, topology_layers)
+	_legacy_runtime_removed("terrain_diagnostics", {"terrain_cell_rows": terrain_cells.size(), "topology_layer_count": topology_layers.size()})
+	return {}
 
 
 func generation_result_from_logic_grid(logic_grid: Array) -> Dictionary:
-	return legacy_chunk_generator().generation_result_from_logic_grid(logic_grid)
+	_legacy_runtime_removed("generation_result_from_logic_grid", {"logic_grid_rows": logic_grid.size()})
+	return _removed_generation_result("generation_result_from_logic_grid")
 
 
 func topology_layers_from_logic_grid(logic_grid: Array) -> Dictionary:
-	return legacy_chunk_generator().topology_layers_from_logic_grid(logic_grid)
+	_legacy_runtime_removed("topology_layers_from_logic_grid", {"logic_grid_rows": logic_grid.size()})
+	return {}
 
 
 func terrain_cells_from_logic_grid(logic_grid: Array) -> Array:
-	return legacy_chunk_generator().terrain_cells_from_logic_grid(logic_grid)
+	_legacy_runtime_removed("terrain_cells_from_logic_grid", {"logic_grid_rows": logic_grid.size()})
+	return []
 
 
 func ordered_layer_ids(topology_layers: Dictionary) -> Array:
-	return legacy_chunk_generator().ordered_layer_ids(topology_layers)
+	var ids := topology_layers.keys()
+	ids.sort()
+	return ids
 
 
 func effective_chunk_size_cells() -> int:
@@ -308,3 +374,48 @@ func _int_setting(key: String, default_value: int) -> int:
 
 func _float_setting(key: String, default_value: float) -> float:
 	return float(settings.get(key, default_value))
+
+
+func _native_grid_mapper() -> Object:
+	if _native_grid_mapper_cache.has(settings_hash):
+		return _native_grid_mapper_cache[settings_hash]
+	if not ClassDB.class_exists("GodotGridTopologyMapper"):
+		push_error("godot_grid native backend is unavailable: GodotGridTopologyMapper is not registered")
+		return null
+	var mapper: Object = ClassDB.instantiate("GodotGridTopologyMapper")
+	if mapper == null:
+		push_error("godot_grid native backend is unavailable: failed to instantiate GodotGridTopologyMapper")
+		return null
+	_native_grid_mapper_cache[settings_hash] = mapper
+	return mapper
+
+
+func _native_settings_dictionary() -> Dictionary:
+	var native_settings := settings.duplicate(true)
+	native_settings["effective_chunk_size_cells"] = effective_chunk_size_cells()
+	native_settings["settings_hash"] = settings_hash
+	return native_settings
+
+
+func _native_backend_error(method_name: String) -> Dictionary:
+	push_error("godot_grid native backend missing method: %s" % method_name)
+	return {
+		"error": "native_backend_unavailable",
+		"method": method_name,
+		"backend": "godot_grid",
+	}
+
+
+func _legacy_runtime_removed(function_name: String, detail: Dictionary = {}) -> void:
+	var message := "legacy generation runtime API removed: %s; use generate_world_chunk or native canonical products" % function_name
+	if not detail.is_empty():
+		message = "%s detail=%s" % [message, str(detail)]
+	push_warning(message)
+
+
+func _removed_generation_result(function_name: String) -> Dictionary:
+	return {
+		"error": "legacy_generation_runtime_removed",
+		"function": function_name,
+		"replacement": "generate_world_chunk",
+	}
