@@ -16,6 +16,10 @@ func _initialize() -> void:
 	test_world_layer_set_duplicate_layer_ids_record_invalid_without_overwrite()
 	test_world_layer_set_get_layer_returns_mutation_safe_copy()
 	test_generated_world_chunk_can_carry_semantic_layer_without_breaking_compatibility()
+	test_generated_world_chunk_carries_semantic_world_layer_set()
+	test_adapter_prefers_semantic_world_layer_set_without_legacy_result()
+	test_adapter_reconstructs_terrain_cells_from_semantic_layer_without_legacy_result()
+	test_adapter_falls_back_to_raw_legacy_terrain_layer_without_semantic_layer()
 	test_existing_migration_gate_smoke_still_passes()
 	quit(1 if failed else 0)
 
@@ -169,15 +173,160 @@ func test_generated_world_chunk_can_carry_semantic_layer_without_breaking_compat
 	)
 
 	_assert(not world_chunk.legacy_generation_result.is_empty(), "GeneratedWorldChunk keeps legacy result")
+	_assert(not world_chunk.legacy_generation_result.has("logic_grid"), "GeneratedWorldChunk keeps logic_grid out of legacy result")
 	_assert(world_chunk.world_layers.has("legacy_terrain_cells"), "GeneratedWorldChunk keeps raw legacy terrain layer")
 	_assert(not semantic_layer.is_empty(), "GeneratedWorldChunk carries semantic legacy terrain layer")
 	_assert(semantic_layer.get("product_type", "") == WorldLayerScript.PRODUCT_TYPE, "semantic layer dictionary is a WorldLayer")
 	_assert(
 		_variant_signature(compatibility_result)
-		== _variant_signature(world_chunk.legacy_generation_result),
-		"semantic layer does not change compatibility generation result"
+		== _variant_signature(GeneratedChunkDataAdapter.normalize_generation_result(world_chunk.legacy_generation_result)),
+		"semantic layer does not change normalized compatibility generation result"
 	)
 	provider.free()
+
+
+func test_generated_world_chunk_carries_semantic_world_layer_set() -> void:
+	var provider: Node = _configured_provider()
+	var chunk_coord := Vector3i(1, 0, -1)
+	var working_set := _run_pipeline_for_provider(provider, chunk_coord)
+	var world_chunk := GeneratedWorldChunk.from_working_set(working_set)
+	var semantic_layer_set: Dictionary = world_chunk.world_layers.get(
+		LegacyChunkGenerationStage.SEMANTIC_WORLD_LAYER_SET_KEY,
+		{}
+	)
+	var semantic_layers: Dictionary = semantic_layer_set.get("layers", {})
+	var terrain_layer: Dictionary = semantic_layers.get("legacy_terrain_cells", {})
+
+	_assert(not semantic_layer_set.is_empty(), "GeneratedWorldChunk carries semantic WorldLayerSet")
+	_assert(
+		semantic_layer_set.get("product_type", "") == WorldLayerSetScript.PRODUCT_TYPE,
+		"semantic layer set dictionary is a WorldLayerSet"
+	)
+	_assert(semantic_layers.has("legacy_terrain_cells"), "semantic WorldLayerSet contains legacy terrain layer")
+	_assert(
+		_variant_signature(terrain_layer.get("cells", []))
+		== _variant_signature(world_chunk.legacy_generation_result.get("terrain_cells", [])),
+		"semantic WorldLayerSet preserves legacy terrain cells"
+	)
+	provider.free()
+
+
+func test_adapter_prefers_semantic_world_layer_set_without_legacy_result() -> void:
+	var semantic_terrain_cells := _sample_terrain_cells()
+	var fallback_terrain_cells := _fallback_terrain_cells()
+	var semantic_generation_result := _sample_generation_result()
+	semantic_generation_result["terrain_cells"] = semantic_terrain_cells
+	var semantic_layer_set: Dictionary = WorldLayerSetScript.from_legacy_generation_result(
+		semantic_generation_result,
+		_sample_bounds(),
+		WorldSpace.DOMAIN_CELL_GRID_2D
+	).to_dictionary()
+	var fallback_layer: Dictionary = WorldLayerScript.from_legacy_terrain_cells(
+		"legacy_terrain_cells",
+		fallback_terrain_cells,
+		_sample_bounds(),
+		WorldSpace.DOMAIN_CELL_GRID_2D
+	).to_dictionary()
+	var world_chunk := GeneratedWorldChunk.new().configure(
+		null,
+		_sample_bounds(),
+		{
+			LegacyChunkGenerationStage.SEMANTIC_WORLD_LAYER_SET_KEY: semantic_layer_set,
+			LegacyChunkGenerationStage.SEMANTIC_LEGACY_TERRAIN_LAYER_KEY: fallback_layer,
+			"legacy_terrain_cells": fallback_terrain_cells,
+		},
+		{},
+		{},
+		{},
+		semantic_generation_result["topology_layers"],
+		{},
+		{},
+		{},
+		[],
+		PackedStringArray(),
+		{}
+	)
+
+	var compatibility_result := GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
+	_assert(
+		_variant_signature(compatibility_result["terrain_cells"]) == _variant_signature(semantic_terrain_cells),
+		"GeneratedChunkDataAdapter prefers semantic WorldLayerSet without legacy result"
+	)
+	_assert(
+		_variant_signature(compatibility_result["terrain_cells"]) != _variant_signature(fallback_terrain_cells),
+		"GeneratedChunkDataAdapter reads WorldLayerSet before individual legacy terrain fallbacks"
+	)
+
+
+func test_adapter_reconstructs_terrain_cells_from_semantic_layer_without_legacy_result() -> void:
+	var semantic_terrain_cells := _sample_terrain_cells()
+	var fallback_terrain_cells := _fallback_terrain_cells()
+	var semantic_layer: Dictionary = WorldLayerScript.from_legacy_terrain_cells(
+		"legacy_terrain_cells",
+		semantic_terrain_cells,
+		_sample_bounds(),
+		WorldSpace.DOMAIN_CELL_GRID_2D
+	).to_dictionary()
+	var generation_result := _sample_generation_result()
+	var world_chunk := GeneratedWorldChunk.new().configure(
+		null,
+		_sample_bounds(),
+		{
+			LegacyChunkGenerationStage.SEMANTIC_LEGACY_TERRAIN_LAYER_KEY: semantic_layer,
+			"legacy_terrain_cells": fallback_terrain_cells,
+		},
+		{"legacy_debug_markers": [{"type": "semantic_no_legacy_result"}]},
+		{},
+		{},
+		generation_result["topology_layers"],
+		{},
+		{},
+		{"authority": "semantic_no_legacy_result"},
+		[],
+		PackedStringArray(),
+		{}
+	)
+
+	var compatibility_result := GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
+	_assert(
+		_variant_signature(compatibility_result["terrain_cells"]) == _variant_signature(semantic_terrain_cells),
+		"GeneratedChunkDataAdapter reconstructs terrain_cells from semantic legacy terrain layer without legacy result"
+	)
+	_assert(
+		_variant_signature(compatibility_result["terrain_cells"]) != _variant_signature(fallback_terrain_cells),
+		"GeneratedChunkDataAdapter prefers semantic legacy terrain layer over raw legacy layer"
+	)
+	_assert(
+		_variant_signature(compatibility_result["logic_grid"])
+		== _variant_signature(generation_result["topology_layers"]["solid"]),
+		"GeneratedChunkDataAdapter still derives logic_grid compatibility alias without legacy result"
+	)
+
+
+func test_adapter_falls_back_to_raw_legacy_terrain_layer_without_semantic_layer() -> void:
+	var fallback_terrain_cells := _fallback_terrain_cells()
+	var generation_result := _sample_generation_result()
+	var world_chunk := GeneratedWorldChunk.new().configure(
+		null,
+		_sample_bounds(),
+		{"legacy_terrain_cells": fallback_terrain_cells},
+		{},
+		{},
+		{},
+		generation_result["topology_layers"],
+		{},
+		{},
+		{},
+		[],
+		PackedStringArray(),
+		{}
+	)
+
+	var compatibility_result := GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
+	_assert(
+		_variant_signature(compatibility_result["terrain_cells"]) == _variant_signature(fallback_terrain_cells),
+		"GeneratedChunkDataAdapter falls back to raw legacy terrain layer without semantic layer"
+	)
 
 
 func test_existing_migration_gate_smoke_still_passes() -> void:
@@ -260,6 +409,19 @@ func _sample_terrain_cells() -> Array:
 		[
 			{"solid": false, "liquid": true, "walkable": false, "surface": "water", "material": "water"},
 			{"solid": false, "liquid": false, "walkable": true, "surface": "ground", "material": "ground"},
+		],
+	]
+
+
+func _fallback_terrain_cells() -> Array:
+	return [
+		[
+			{"solid": true, "liquid": false, "walkable": false, "surface": "ground", "material": "fallback_rock"},
+			{"solid": true, "liquid": false, "walkable": false, "surface": "ground", "material": "fallback_rock"},
+		],
+		[
+			{"solid": true, "liquid": false, "walkable": false, "surface": "ground", "material": "fallback_rock"},
+			{"solid": true, "liquid": false, "walkable": false, "surface": "ground", "material": "fallback_rock"},
 		],
 	]
 

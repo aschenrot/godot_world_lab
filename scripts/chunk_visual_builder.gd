@@ -13,6 +13,37 @@ func _init() -> void:
 		topology_mapper = ClassDB.instantiate("GodotGridTopologyMapper") as Object
 
 
+func host_adapter_contract() -> Dictionary:
+	return {
+		"product_type": "GodotHostAdapterContract",
+		"adapter_id": "chunk_visual_builder",
+		"host_surface": "visual",
+		"consumes": PackedStringArray([
+			"GeneratedChunkData.formation_layers",
+			"GeneratedChunkData.formation_grid",
+			"GeneratedChunkData.topology_layers.solid",
+			"GeneratedChunkData.logic_grid_compatibility_alias",
+		]),
+		"produces": PackedStringArray([
+			"ChunkVisualPlan",
+			"ChunkInstantiationPlan",
+			"Node3D visual realization",
+		]),
+		"owns_generation_truth": false,
+		"non_ownership": PackedStringArray([
+			"world definition",
+			"semantic layers",
+			"topology projections",
+			"formation products",
+			"diagnostics provenance",
+			"chunk cache identity",
+			"save records",
+			"spawning",
+			"ECS",
+		]),
+	}
+
+
 func build_visual_plan(chunk_coord: Vector3i, logic_grid: Array, catalog: RefCounted = null) -> Dictionary:
 	if topology_mapper == null:
 		return _unavailable_mapper_plan(chunk_coord)
@@ -69,24 +100,54 @@ func build_visual_plan_from_generated_chunk(
 	catalog: RefCounted = null
 ) -> Dictionary:
 	if generated_chunk_data.has("formation_layers"):
-		return _build_layered_visual_plan_from_generated_chunk(generated_chunk_data, catalog)
-
-	if generated_chunk_data.has("formation_grid"):
-		return build_owned_visual_plan(
-			generated_chunk_data["chunk_coord"],
-			generated_chunk_data["formation_grid"],
-			generated_chunk_data.get("formation_origin_cell", Vector2i(-1, -1)),
-			generated_chunk_data.get("owned_visual_origin", Vector2i.ZERO),
-			generated_chunk_data.get("owned_visual_size", _visual_grid_size_for_logic_grid(
-				generated_chunk_data["logic_grid"]
-			)),
-			catalog
+		return _attach_generated_chunk_source_metadata(
+			_build_layered_visual_plan_from_generated_chunk(generated_chunk_data, catalog),
+			generated_chunk_data,
+			PackedStringArray(["formation_layers"])
 		)
 
-	return build_visual_plan(
-		generated_chunk_data["chunk_coord"],
-		generated_chunk_data["logic_grid"],
-		catalog
+	if generated_chunk_data.has("formation_grid"):
+		return _attach_generated_chunk_source_metadata(
+			build_owned_visual_plan(
+				generated_chunk_data["chunk_coord"],
+				generated_chunk_data["formation_grid"],
+				generated_chunk_data.get("formation_origin_cell", Vector2i(-1, -1)),
+				generated_chunk_data.get("owned_visual_origin", Vector2i.ZERO),
+				generated_chunk_data.get(
+					"owned_visual_size",
+					_visual_grid_size_for_logic_grid(generated_chunk_data.get("formation_grid", []))
+				),
+				catalog
+			),
+			generated_chunk_data,
+			PackedStringArray([
+				"formation_grid",
+				"formation_origin_cell",
+				"owned_visual_origin",
+				"owned_visual_size",
+			])
+		)
+
+	var topology_layers: Dictionary = generated_chunk_data.get("topology_layers", {})
+	if topology_layers.has(LAYER_SOLID):
+		return _attach_generated_chunk_source_metadata(
+			build_visual_plan(
+				generated_chunk_data["chunk_coord"],
+				topology_layers[LAYER_SOLID],
+				catalog
+			),
+			generated_chunk_data,
+			PackedStringArray(["topology_layers.solid"])
+		)
+
+	return _attach_generated_chunk_source_metadata(
+		build_visual_plan(
+			generated_chunk_data["chunk_coord"],
+			generated_chunk_data["logic_grid"],
+			catalog
+		),
+		generated_chunk_data,
+		PackedStringArray(["logic_grid"])
 	)
 
 
@@ -329,6 +390,26 @@ func _build_layered_visual_plan_from_generated_chunk(
 	plan["source_authority"] = generated_chunk_data.get("authority", "")
 	plan["generation_diagnostics"] = generated_chunk_data.get("diagnostics", {})
 	return plan
+
+
+func _attach_generated_chunk_source_metadata(
+	visual_plan: Dictionary,
+	generated_chunk_data: Dictionary,
+	source_consumed_fields: PackedStringArray
+) -> Dictionary:
+	var next_plan := visual_plan.duplicate(true)
+	next_plan["source_generated_product_type"] = generated_chunk_data.get("product_type", "")
+	next_plan["source_authority"] = generated_chunk_data.get("authority", "")
+	next_plan["source_consumed_fields"] = source_consumed_fields.duplicate()
+	next_plan["host_adapter_contract"] = host_adapter_contract()
+	var diagnostics: Dictionary = next_plan.get("diagnostics", {}).duplicate(true)
+	diagnostics["host_adapter"] = {
+		"adapter_id": "chunk_visual_builder",
+		"owns_generation_truth": false,
+		"source_consumed_fields": source_consumed_fields.duplicate(),
+	}
+	next_plan["diagnostics"] = diagnostics
+	return next_plan
 
 
 func _unavailable_mapper_plan(chunk_coord: Vector3i) -> Dictionary:

@@ -5,6 +5,16 @@ class_name GeneratedWorldChunk
 const PRODUCT_TYPE := "GeneratedWorldChunk"
 const SCHEMA_VERSION := 1
 const LEGACY_GENERATION_RESULT_KEY := "legacy_generation_result"
+const WORLD_FEATURE_SET_KEY := "world_feature_set"
+const CONTINUITY_FACT_SET_KEY := "continuity_fact_set"
+const PLACEMENT_CANDIDATE_SET_KEY := "placement_candidate_set"
+const TOPOLOGY_PROJECTION_SET_KEY := "topology_projection_set"
+const WorldFeatureSetScript := preload("res://scripts/world_generation/features/world_feature_set.gd")
+const ContinuityFactSetScript := preload("res://scripts/world_generation/continuity/continuity_fact_set.gd")
+const PlacementCandidateSetScript := preload("res://scripts/world_generation/placement/placement_candidate_set.gd")
+const TopologyProjectionSetScript := preload("res://scripts/world_generation/topology/topology_projection_set.gd")
+const GenerationDiagnosticsScript := preload("res://scripts/world_generation/diagnostics/generation_diagnostics.gd")
+const GeneratedChunkReportScript := preload("res://scripts/world_generation/diagnostics/generated_chunk_report.gd")
 
 var identity: GeneratedChunkIdentity = null
 var bounds: Dictionary = {}
@@ -13,6 +23,7 @@ var world_features: Dictionary = {}
 var continuity_facts: Dictionary = {}
 var placement_candidates: Dictionary = {}
 var topology_projections: Dictionary = {}
+var topology_projection_set: Dictionary = {}
 var formation_products: Dictionary = {}
 var generation_diagnostics: Dictionary = {}
 var stage_results: Array = []
@@ -48,6 +59,7 @@ static func from_working_set(working_set: GenerationWorkingSet) -> GeneratedWorl
 		working_set.continuity_facts,
 		working_set.placement_candidates,
 		working_set.topology_projections,
+		generated_products.get(TOPOLOGY_PROJECTION_SET_KEY, {}),
 		working_set.formation_products,
 		working_set.diagnostics,
 		working_set.stage_report(),
@@ -62,21 +74,43 @@ static func from_legacy_generation_result(
 	generation_result: Dictionary,
 	diagnostics: Dictionary = {}
 ) -> GeneratedWorldChunk:
-	var topology_layers: Dictionary = generation_result.get("topology_layers", {})
+	var internal_result := GeneratedChunkDataAdapter.generation_result_without_logic_grid_alias(generation_result)
+	var topology_layers: Dictionary = internal_result.get("topology_layers", {})
+	var debug_markers: Array = internal_result.get("debug_markers", [])
+	var world_feature_set: Dictionary = WorldFeatureSetScript.from_legacy_debug_markers(
+		debug_markers,
+		p_bounds
+	).to_dictionary()
+	var continuity_fact_set: Dictionary = ContinuityFactSetScript.from_context_bounds(
+		p_bounds
+	).to_dictionary()
+	var placement_candidate_set: Dictionary = PlacementCandidateSetScript.from_legacy_debug_markers(
+		debug_markers,
+		p_bounds
+	).to_dictionary()
+	var projection_set: Dictionary = TopologyProjectionSetScript.from_legacy_topology_layers(
+		topology_layers,
+		p_bounds,
+		p_bounds.get("domain_descriptor", WorldSpace.DOMAIN_CELL_GRID_2D)
+	).to_dictionary()
 	var chunk := GeneratedWorldChunk.new()
 	return chunk.configure(
 		p_identity,
 		p_bounds,
-		{"legacy_terrain_cells": generation_result.get("terrain_cells", [])},
-		{"legacy_debug_markers": generation_result.get("debug_markers", [])},
-		{},
-		{},
+		{"legacy_terrain_cells": internal_result.get("terrain_cells", [])},
+		{
+			"legacy_debug_markers": debug_markers,
+			WORLD_FEATURE_SET_KEY: world_feature_set,
+		},
+		{CONTINUITY_FACT_SET_KEY: continuity_fact_set},
+		{PLACEMENT_CANDIDATE_SET_KEY: placement_candidate_set},
 		topology_layers,
+		projection_set,
 		{},
 		diagnostics,
 		[],
 		PackedStringArray(),
-		generation_result
+		internal_result
 	)
 
 
@@ -88,6 +122,7 @@ func configure(
 	p_continuity_facts: Dictionary = {},
 	p_placement_candidates: Dictionary = {},
 	p_topology_projections: Dictionary = {},
+	p_topology_projection_set: Dictionary = {},
 	p_formation_products: Dictionary = {},
 	p_generation_diagnostics: Dictionary = {},
 	p_stage_results: Array = [],
@@ -101,6 +136,7 @@ func configure(
 	continuity_facts = p_continuity_facts.duplicate(true)
 	placement_candidates = p_placement_candidates.duplicate(true)
 	topology_projections = p_topology_projections.duplicate(true)
+	topology_projection_set = p_topology_projection_set.duplicate(true)
 	formation_products = p_formation_products.duplicate(true)
 	generation_diagnostics = p_generation_diagnostics.duplicate(true)
 	stage_results = p_stage_results.duplicate(true)
@@ -118,6 +154,7 @@ func duplicate_chunk() -> GeneratedWorldChunk:
 		continuity_facts,
 		placement_candidates,
 		topology_projections,
+		topology_projection_set,
 		formation_products,
 		generation_diagnostics,
 		stage_results,
@@ -128,6 +165,18 @@ func duplicate_chunk() -> GeneratedWorldChunk:
 
 func has_validation_errors() -> bool:
 	return not validation_issues.is_empty()
+
+
+func diagnostics_report() -> Dictionary:
+	return GenerationDiagnosticsScript.from_world_chunk(self).to_dictionary()
+
+
+func generated_chunk_report() -> Dictionary:
+	return GeneratedChunkReportScript.from_world_chunk(self).to_dictionary()
+
+
+func product_signature_map() -> Dictionary:
+	return GenerationDiagnosticsScript.product_signature_map_from_world_chunk(self)
 
 
 func to_dictionary() -> Dictionary:
@@ -141,6 +190,7 @@ func to_dictionary() -> Dictionary:
 		"continuity_facts": continuity_facts.duplicate(true),
 		"placement_candidates": placement_candidates.duplicate(true),
 		"topology_projections": topology_projections.duplicate(true),
+		"topology_projection_set": topology_projection_set.duplicate(true),
 		"formation_products": formation_products.duplicate(true),
 		"generation_diagnostics": generation_diagnostics.duplicate(true),
 		"stage_results": stage_results.duplicate(true),
@@ -159,6 +209,7 @@ func signature_hash() -> int:
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(continuity_facts))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(placement_candidates))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(topology_projections))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(topology_projection_set))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(formation_products))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(generation_diagnostics))
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_variant(stage_results))

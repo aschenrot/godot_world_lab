@@ -10,7 +10,8 @@ Decision:
 Do not create Crystonix/procgen now.
 Do not extract Godot Lab world generation now.
 Do not add a new Rust crate as the canonical owner now.
-Finish the Godot Lab migration gate first.
+Do not add Runenwerk integration now.
+Do not merge grid or spatial_streaming into another owner now.
 ```
 
 A standalone Rust procgen repository is premature unless later evidence proves that neither Godot Lab, Runenwerk `domain/procgen`, `grid`, nor `spatial_streaming` owns the required invariants.
@@ -19,9 +20,63 @@ This is a boundary review only. It does not authorize implementation work, repo 
 
 ---
 
+## Current M15 Ownership Review
+
+Decision:
+
+```text
+defer_extraction_and_integration
+```
+
+Current evidence:
+
+```text
+Godot Lab product contracts are proven enough to review.
+Two meaningfully different definition contracts are proven.
+Host adapter boundaries are non-authoritative.
+Legacy generation is explicitly retained.
+New runtime abstractions are explicitly deferred.
+No replacement generation authority is proven.
+No non-Godot consumer need is proven.
+Runenwerk is not proven the wrong owner.
+Runenwerk integration pressure is not proven.
+No smaller Rust API is proven.
+No durable external invariants are proven.
+```
+
+Current ownership findings:
+
+```text
+Godot Lab remains proof host and Godot adapter owner.
+Runenwerk remains the future candidate for Runenwerk-specific procgen ownership if pressure is later proven.
+grid remains owner of reusable grid/topology mechanics.
+spatial_streaming remains owner of payload-neutral streaming lifecycle.
+Crystonix/procgen has no owner yet and must not be created.
+```
+
+Guarded artifacts:
+
+```text
+Crystonix/procgen
+Rust procgen crate
+Runenwerk integration
+Runenwerk final procgen graph contract
+Runenwerk SDF payload ownership
+grid/spatial_streaming merge
+```
+
+The current review is encoded by:
+
+```text
+scripts/world_generation/extraction_ownership_review.gd
+tests/world_generation_extraction_ownership_review_smoke.gd
+```
+
+---
+
 ## Current Gate
 
-The current Godot Lab world-generation gate remains:
+The original Godot Lab world-generation gate was:
 
 ```text
 hash hardening
@@ -29,7 +84,7 @@ smoke tests
 provider pipeline wiring
 ```
 
-Do not start later semantic milestones until this gate is complete.
+That gate has since been completed and extended through semantic layers, topology projections, formation products, data-only features/continuity/placement, diagnostics/provenance, cache identity, provider shrink, definition diversity, domain contracts, host adapter review, legacy retention, and runtime abstraction review.
 
 The immediate proof must establish that Godot Lab can route the current legacy generator through the canonical migration path:
 
@@ -43,7 +98,7 @@ WorldDefinitionSnapshot
 → Godot realization
 ```
 
-Until that path is deterministic, smoke-tested, and adapter-compatible, there is no stable contract to extract into Rust.
+That path is now deterministic, smoke-tested, and adapter-compatible. It still does not justify Rust extraction because the current blockers are ownership and external-consumer evidence, not local migration mechanics.
 
 ---
 
@@ -340,12 +395,12 @@ Do not extract Godot Lab world generation now.
 Do not merge grid back into Runenwerk now.
 Do not merge spatial_streaming back into Runenwerk now.
 Do not add Runenwerk integration now.
+Do not add a Rust procgen crate now.
 Do not add new algorithms now.
-Do not start M7+ now.
 ```
 
-Finish the current Godot Lab migration gate first.
+Keep the current Godot Lab proof in Godot Lab.
 
-Then perform a contract comparison against Runenwerk `domain/procgen`, `product`, `world_ops`, `world_sdf`, `spatial`, `graph`, plus the separate `grid` and `spatial_streaming` repositories.
+Future comparison should be against Runenwerk `domain/procgen`, `product`, `world_ops`, `world_sdf`, `spatial`, `graph`, plus the separate `grid` and `spatial_streaming` repositories.
 
 Only after that comparison should ownership move.

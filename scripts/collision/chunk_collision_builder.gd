@@ -5,6 +5,35 @@ const LAYER_SOLID := "solid"
 const LAYER_WATER := "water"
 
 
+func host_adapter_contract() -> Dictionary:
+	return {
+		"product_type": "GodotHostAdapterContract",
+		"adapter_id": "chunk_collision_builder",
+		"host_surface": "collision",
+		"consumes": PackedStringArray([
+			"GeneratedChunkData.topology_layers.solid",
+			"GeneratedChunkData.topology_layers.water",
+			"GeneratedChunkData.logic_grid_compatibility_alias",
+		]),
+		"produces": PackedStringArray([
+			"ChunkCollisionPlan",
+			"StaticBody3D collision realization",
+		]),
+		"owns_generation_truth": false,
+		"non_ownership": PackedStringArray([
+			"world definition",
+			"semantic layers",
+			"topology projections",
+			"formation products",
+			"diagnostics provenance",
+			"chunk cache identity",
+			"save records",
+			"spawning",
+			"ECS",
+		]),
+	}
+
+
 func build_chunk_collision(
 	chunk_coord: Vector3i,
 	collision_source: Dictionary,
@@ -17,6 +46,7 @@ func build_chunk_collision(
 	body.set_meta("chunk_coord", chunk_coord)
 	body.set_meta("source_product_type", collision_source.get("product_type", ""))
 	body.set_meta("collision_backend", "box_per_collision_policy_cell")
+	body.set_meta("host_adapter_contract", host_adapter_contract())
 
 	var collision_plan := build_collision_plan(chunk_coord, collision_source, options)
 	body.set_meta("collision_plan", collision_plan)
@@ -58,6 +88,11 @@ func build_collision_plan(
 	var solid_grid: Array = topology_layers.get(LAYER_SOLID, collision_source.get("logic_grid", []))
 	var water_grid: Array = topology_layers.get(LAYER_WATER, [])
 	var liquid_blocks := bool(options.get("liquid_blocks_movement", true))
+	var source_consumed_fields := _collision_consumed_fields(collision_source)
+	var uses_logic_grid_compatibility_alias := (
+		not topology_layers.has(LAYER_SOLID)
+		and collision_source.has("logic_grid")
+	)
 	var blocking_cells: Array[Dictionary] = []
 	var solid_count := 0
 	var liquid_count := 0
@@ -82,6 +117,8 @@ func build_collision_plan(
 		"product_type": "ChunkCollisionPlan",
 		"chunk_coord": chunk_coord,
 		"source_product_type": collision_source.get("product_type", ""),
+		"source_consumed_fields": source_consumed_fields,
+		"host_adapter_contract": host_adapter_contract(),
 		"blocking_cells": blocking_cells,
 		"policy": {
 			"solid_blocks_movement": true,
@@ -93,6 +130,10 @@ func build_collision_plan(
 			"solid_blocking_cell_count": solid_count,
 			"liquid_blocking_cell_count": liquid_count,
 			"source_has_topology_layers": collision_source.has("topology_layers"),
+			"source_has_logic_grid_alias": collision_source.has("logic_grid"),
+			"uses_logic_grid_compatibility_alias": uses_logic_grid_compatibility_alias,
+			"owns_generation_truth": false,
+			"source_consumed_fields": source_consumed_fields.duplicate(),
 		},
 	}
 
@@ -120,6 +161,18 @@ func _cell_collision_origin(cell: Vector2i, cell_size_meters: float) -> Vector3:
 		DEFAULT_COLLISION_HEIGHT_METERS * 0.5,
 		(float(cell.y) + 0.5) * cell_size_meters
 	)
+
+
+func _collision_consumed_fields(collision_source: Dictionary) -> PackedStringArray:
+	var consumed_fields := PackedStringArray()
+	var topology_layers: Dictionary = collision_source.get("topology_layers", {})
+	if topology_layers.has(LAYER_SOLID):
+		consumed_fields.append("topology_layers.solid")
+	if topology_layers.has(LAYER_WATER):
+		consumed_fields.append("topology_layers.water")
+	if consumed_fields.is_empty() and collision_source.has("logic_grid"):
+		consumed_fields.append("logic_grid")
+	return consumed_fields
 
 
 func _grid_cell(grid: Array, cell: Vector2i) -> int:

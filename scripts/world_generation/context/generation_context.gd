@@ -103,6 +103,7 @@ func to_dictionary() -> Dictionary:
 		"chunk_size_cells": chunk_size_cells,
 		"halo_cells": halo_cells,
 		"domain_descriptor": domain_descriptor,
+		"domain_contract": WorldSpace.domain_contract_dictionary(domain_descriptor),
 		"owned_cell_bounds": owned_cell_bounds,
 		"sample_cell_bounds": sample_cell_bounds,
 		"requested_product_set": requested_product_set.duplicate(),

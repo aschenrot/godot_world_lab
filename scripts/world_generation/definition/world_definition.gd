@@ -44,6 +44,21 @@ func generation_settings_hash() -> int:
 	return GeneratedChunkIdentity.stable_hash_variant(generation_settings)
 
 
+func contract_hash() -> int:
+	var h := GeneratedChunkIdentity.stable_hash_string("WorldDefinition:contract:v1")
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_string(world_definition_id))
+	h = GeneratedChunkIdentity.mix_hash(h, world_definition_version)
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_string(domain_descriptor))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_ordered_string_ids(stage_ids))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_ordered_string_ids(layer_schema_ids))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_ordered_string_ids(feature_schema_ids))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_ordered_string_ids(continuity_policy_ids))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_unordered_string_ids(requested_topology_projections))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_unordered_string_ids(requested_formation_products))
+	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_unordered_string_ids(requested_product_set))
+	return h
+
+
 func definition_hash() -> int:
 	var h := GeneratedChunkIdentity.stable_hash_string("WorldDefinition:v1")
 	h = GeneratedChunkIdentity.mix_hash(h, GeneratedChunkIdentity.stable_hash_string(world_definition_id))
@@ -76,6 +91,7 @@ func to_dictionary() -> Dictionary:
 		"requested_topology_projections": requested_topology_projections.duplicate(),
 		"requested_formation_products": requested_formation_products.duplicate(),
 		"requested_product_set": requested_product_set.duplicate(),
+		"contract_hash": contract_hash(),
 		"definition_hash": definition_hash(),
 		"generation_settings_hash": generation_settings_hash(),
 	}

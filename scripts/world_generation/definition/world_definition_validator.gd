@@ -61,8 +61,13 @@ static func _validate_common(
 		issues.append("missing_world_definition_id")
 	if world_definition_version <= 0:
 		issues.append("bad_world_definition_version")
-	if not WorldSpace.is_supported_domain_descriptor(domain_descriptor):
+	var normalized_domain_descriptor := domain_descriptor.strip_edges()
+	if not WorldSpace.is_supported_domain_descriptor(normalized_domain_descriptor):
 		issues.append("unsupported_domain_descriptor")
+	else:
+		var domain_contract := WorldSpace.domain_contract(normalized_domain_descriptor)
+		if domain_contract == null or not domain_contract.is_valid():
+			issues.append("invalid_domain_descriptor_contract")
 	if requested_product_set.is_empty():
 		issues.append("missing_requested_product_set")
 	_add_array_findings("stage_ids", stage_ids, false, issues, notes)

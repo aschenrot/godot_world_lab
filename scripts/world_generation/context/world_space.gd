@@ -8,6 +8,7 @@ const DOMAIN_STACKED_LAYERS := "stacked_layers"
 const DOMAIN_VOLUME_GRID_3D := "volume_grid_3d"
 const DOMAIN_GRAPH_REGION := "graph_region"
 const DOMAIN_HYBRID := "hybrid"
+const DOMAIN_CONTRACT_SCRIPT_PATH := "res://scripts/world_generation/context/domain_descriptor_contract.gd"
 
 var chunk_size_cells: int = 16
 var halo_cells: int = 1
@@ -86,6 +87,7 @@ func to_dictionary() -> Dictionary:
 		"chunk_size_cells": chunk_size_cells,
 		"halo_cells": halo_cells,
 		"domain_descriptor": domain_descriptor,
+		"domain_contract": domain_contract_dictionary(domain_descriptor),
 	}
 
 
@@ -102,6 +104,117 @@ static func supported_domain_descriptors() -> PackedStringArray:
 
 static func is_supported_domain_descriptor(value: String) -> bool:
 	return supported_domain_descriptors().has(value.strip_edges())
+
+
+static func domain_contract(value: String) -> RefCounted:
+	var normalized_value := value.strip_edges()
+	var definitions := _domain_contract_definitions()
+	if not definitions.has(normalized_value):
+		return null
+	var definition: Dictionary = definitions[normalized_value]
+	return load(DOMAIN_CONTRACT_SCRIPT_PATH).from_parts(
+		normalized_value,
+		String(definition.get("coordinate_model", "")),
+		String(definition.get("ownership_model", "")),
+		String(definition.get("halo_model", "")),
+		String(definition.get("sampling_model", "")),
+		String(definition.get("continuity_model", "")),
+		String(definition.get("projection_model", "")),
+		String(definition.get("formation_model", "")),
+		String(definition.get("outputs_model", "")),
+		definition.get("metadata", {})
+	)
+
+
+static func domain_contract_dictionary(value: String) -> Dictionary:
+	var contract := domain_contract(value)
+	return contract.to_dictionary() if contract != null else {}
+
+
+static func domain_contracts_by_descriptor() -> Dictionary:
+	var contracts: Dictionary = {}
+	for descriptor in supported_domain_descriptors():
+		contracts[descriptor] = domain_contract_dictionary(descriptor)
+	return contracts
+
+
+static func domain_descriptor_contract_hash(value: String) -> int:
+	var contract := domain_contract(value)
+	return contract.signature_hash() if contract != null else 0
+
+
+static func _domain_contract_definitions() -> Dictionary:
+	return {
+		DOMAIN_CELL_GRID_2D: {
+			"coordinate_model": "vector2i_cell_xz_with_chunk_y",
+			"ownership_model": "chunk_owned_rect2i",
+			"halo_model": "rect2i_configurable_cell_halo",
+			"sampling_model": "owned_bounds_expanded_by_halo_cells",
+			"continuity_model": "cardinal_neighbor_cell_boundary_facts",
+			"projection_model": "named_binary_topology_grids",
+			"formation_model": "owned_halo_formation_grid",
+			"outputs_model": "generated_world_chunk_with_generated_chunk_data_adapter",
+			"metadata": {
+				"implementation_status": "active_compatibility_domain",
+				"bounds_type": "Rect2i",
+			},
+		},
+		DOMAIN_SURFACE_2_5D: {
+			"coordinate_model": "vector2i_surface_cell_with_height_samples",
+			"ownership_model": "chunk_owned_surface_patch",
+			"halo_model": "surface_patch_neighbor_sample_halo",
+			"sampling_model": "surface_samples_plus_height_neighbors",
+			"continuity_model": "height_and_material_boundary_facts",
+			"projection_model": "surface_topology_views",
+			"formation_model": "surface_formation_products",
+			"outputs_model": "generated_world_chunk_product_sets",
+			"metadata": {"implementation_status": "declared_contract_only"},
+		},
+		DOMAIN_STACKED_LAYERS: {
+			"coordinate_model": "vector2i_cell_xz_with_layer_index",
+			"ownership_model": "chunk_owned_layer_stack",
+			"halo_model": "per_layer_cell_halo",
+			"sampling_model": "owned_layer_cells_expanded_by_halo",
+			"continuity_model": "horizontal_and_vertical_layer_boundary_facts",
+			"projection_model": "stacked_topology_views",
+			"formation_model": "layered_formation_products",
+			"outputs_model": "generated_world_chunk_product_sets",
+			"metadata": {"implementation_status": "declared_contract_only"},
+		},
+		DOMAIN_VOLUME_GRID_3D: {
+			"coordinate_model": "vector3i_voxel_cell",
+			"ownership_model": "chunk_owned_aabb_voxels",
+			"halo_model": "aabb_configurable_voxel_halo",
+			"sampling_model": "owned_voxels_expanded_by_halo",
+			"continuity_model": "six_face_voxel_boundary_facts",
+			"projection_model": "volume_topology_views",
+			"formation_model": "volume_formation_products",
+			"outputs_model": "generated_world_chunk_product_sets",
+			"metadata": {"implementation_status": "declared_contract_only"},
+		},
+		DOMAIN_GRAPH_REGION: {
+			"coordinate_model": "region_graph_node_edge_ids",
+			"ownership_model": "chunk_owned_graph_region",
+			"halo_model": "adjacent_region_edge_halo",
+			"sampling_model": "owned_region_plus_adjacent_edges",
+			"continuity_model": "graph_adjacency_boundary_facts",
+			"projection_model": "graph_topology_views",
+			"formation_model": "graph_region_formation_products",
+			"outputs_model": "generated_world_chunk_product_sets",
+			"metadata": {"implementation_status": "declared_contract_only"},
+		},
+		DOMAIN_HYBRID: {
+			"coordinate_model": "declared_mixed_domain_coordinates",
+			"ownership_model": "declared_mixed_domain_ownership",
+			"halo_model": "declared_mixed_domain_halo",
+			"sampling_model": "declared_mixed_domain_sampling",
+			"continuity_model": "declared_mixed_domain_continuity",
+			"projection_model": "declared_mixed_domain_topology_views",
+			"formation_model": "declared_mixed_domain_formation_products",
+			"outputs_model": "generated_world_chunk_product_sets",
+			"metadata": {"implementation_status": "declared_contract_only"},
+		},
+	}
 
 
 static func _floor_div(value: int, divisor: int) -> int:

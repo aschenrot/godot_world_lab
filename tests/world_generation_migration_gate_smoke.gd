@@ -46,12 +46,44 @@ class PrivateLegacyProbeProvider:
 		}
 
 
+class TopologyOnlyLegacyProbeProvider:
+	extends Node
+
+	var private_call_count: int = 0
+
+	func _generate_legacy_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
+		private_call_count += 1
+		var terrain_cells := [
+			[
+				{"solid": false, "liquid": false, "walkable": true, "surface": "ground", "material": "ground"},
+				{"solid": true, "liquid": false, "walkable": false, "surface": "ground", "material": "rock"},
+			],
+			[
+				{"solid": false, "liquid": true, "walkable": false, "surface": "water", "material": "water"},
+				{"solid": false, "liquid": false, "walkable": true, "surface": "ground", "material": "ground"},
+			],
+		]
+		var topology_layers := {
+			"ground": [[1, 1], [0, 1]],
+			"solid": [[0, 1], [0, 0]],
+			"water": [[0, 0], [1, 0]],
+			"cliff": [[0, 0], [0, 0]],
+		}
+		return {
+			"terrain_cells": terrain_cells,
+			"topology_layers": topology_layers,
+			"debug_markers": [{"type": "topology_only", "chunk_coord": chunk_coord}],
+			"diagnostics": {"authority": "topology_only_smoke", "chunk_coord": chunk_coord},
+		}
+
+
 func _initialize() -> void:
 	test_ordered_hash_changes_when_order_changes()
 	test_unordered_hash_does_not_change_when_order_changes()
 	test_generated_chunk_identity_requested_products_are_unordered()
 	test_world_definition_and_snapshot_hash_semantics_match()
 	test_legacy_stage_calls_private_legacy_generation_method()
+	test_legacy_stage_accepts_topology_layers_without_logic_grid()
 	test_provider_public_generation_path_routes_through_pipeline()
 	test_pipeline_output_finalizes_into_generated_world_chunk()
 	test_generated_chunk_data_adapter_preserves_compatibility_fields()
@@ -169,6 +201,24 @@ func test_legacy_stage_calls_private_legacy_generation_method() -> void:
 	provider.free()
 
 
+func test_legacy_stage_accepts_topology_layers_without_logic_grid() -> void:
+	var provider := TopologyOnlyLegacyProbeProvider.new()
+	var working_set := _run_pipeline_for_provider(provider, Vector3i(2, 0, -3))
+	var world_chunk := GeneratedWorldChunk.from_working_set(working_set)
+	var compatibility_result := GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
+
+	_assert(provider.private_call_count == 1, "legacy stage calls topology-only legacy provider")
+	_assert(not working_set.has_validation_errors(), "legacy stage accepts topology layers without logic_grid")
+	_assert(not world_chunk.legacy_generation_result.has("logic_grid"), "GeneratedWorldChunk stores legacy result without logic_grid alias")
+	_assert(compatibility_result.has("logic_grid"), "GeneratedChunkDataAdapter restores logic_grid compatibility alias")
+	_assert(
+		_variant_signature(compatibility_result["logic_grid"])
+		== _variant_signature(compatibility_result["topology_layers"]["solid"]),
+		"GeneratedChunkDataAdapter derives logic_grid from solid topology projection"
+	)
+	provider.free()
+
+
 func test_provider_public_generation_path_routes_through_pipeline() -> void:
 	var provider: Node = _configured_provider(CountingProviderScript)
 	var result: Dictionary = provider.generate_chunk_generation_result(Vector3i(0, 0, 0))
@@ -186,6 +236,7 @@ func test_pipeline_output_finalizes_into_generated_world_chunk() -> void:
 	_assert(world_chunk.identity != null, "GeneratedWorldChunk has identity")
 	_assert(world_chunk.identity.chunk_coord == chunk_coord, "GeneratedWorldChunk identity keeps chunk coord")
 	_assert(not world_chunk.legacy_generation_result.is_empty(), "GeneratedWorldChunk keeps legacy generation result during migration")
+	_assert(not world_chunk.legacy_generation_result.has("logic_grid"), "GeneratedWorldChunk keeps logic_grid out of legacy generation result")
 	_assert(world_chunk.topology_projections.has("solid"), "GeneratedWorldChunk keeps solid topology projection")
 	_assert(world_chunk.stage_results.size() == 1, "GeneratedWorldChunk keeps stage result")
 	provider.free()
@@ -221,6 +272,20 @@ func test_generated_chunk_data_adapter_preserves_compatibility_fields() -> void:
 		_variant_signature(generated_data["logic_grid"])
 		== _variant_signature(generated_data["topology_layers"]["solid"]),
 		"GeneratedChunkData logic_grid remains solid topology alias"
+	)
+
+	var topology_only_result := generation_result.duplicate(true)
+	topology_only_result.erase("logic_grid")
+	var topology_only_generated_data: Dictionary = provider.make_generated_chunk_data(
+		chunk_coord,
+		[],
+		topology_only_result
+	)
+	_assert(topology_only_generated_data.has("logic_grid"), "GeneratedChunkData restores logic_grid for topology-only generation result")
+	_assert(
+		_variant_signature(topology_only_generated_data["logic_grid"])
+		== _variant_signature(topology_only_generated_data["topology_layers"]["solid"]),
+		"GeneratedChunkData derives logic_grid from topology_layers.solid"
 	)
 
 	var world_chunk: GeneratedWorldChunk = provider._world_chunk_from_compatibility_generation_result(
