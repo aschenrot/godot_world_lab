@@ -3,6 +3,8 @@ extends Node3D
 @export var chunk_edge_meters: float = 32.0
 @export var load_radius_chunks: int = 4
 @export var unload_radius_chunks: int = 6
+@export var vertical_load_radius_chunks: int = 0
+@export var vertical_unload_radius_chunks: int = 1
 @export var max_pooled_visual_roots: int = 64
 @export var focus_target_path: NodePath
 @export var chunk_root_container_path: NodePath
@@ -61,7 +63,12 @@ func _install_streaming_node() -> void:
 	streaming_node.name = "WorldStreamingNode"
 	add_child(streaming_node)
 	streaming_node.set_chunk_edge_meters(chunk_edge_meters)
-	streaming_node.set_load_radii(load_radius_chunks, unload_radius_chunks, 1, 2)
+	streaming_node.set_load_radii(
+		load_radius_chunks,
+		unload_radius_chunks,
+		vertical_load_radius_chunks,
+		vertical_unload_radius_chunks
+	)
 	streaming_node.set_planar_xz_mode()
 
 
@@ -105,12 +112,12 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 	if chunk_provider == null or chunk_visual_builder == null or tile_mesh_catalog == null:
 		return
 
-	var generated_chunk_data: Dictionary = chunk_provider.call("get_loaded_chunk_data", chunk_coord)
-	if generated_chunk_data.is_empty():
+	var canonical_record: Dictionary = chunk_provider.call("get_loaded_chunk_record", chunk_coord)
+	if canonical_record.is_empty():
 		return
 
-	var visual_plan: Dictionary = chunk_visual_builder.build_visual_plan_from_generated_chunk(
-		generated_chunk_data,
+	var visual_plan: Dictionary = chunk_visual_builder.build_visual_plan_from_canonical_source(
+		canonical_record,
 		tile_mesh_catalog
 	)
 	last_visual_plan_diagnostics = visual_plan.get("diagnostics", {})
@@ -131,7 +138,7 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 		chunk_provider.chunk_size_cells,
 		_take_pooled_visual_root()
 	)
-	_add_collision_if_enabled(visual_root, chunk_coord, generated_chunk_data)
+	_add_collision_if_enabled(visual_root, chunk_coord, canonical_record)
 	_add_placed_objects_if_enabled(visual_root, chunk_coord)
 	_apply_overlay(visual_root, chunk_coord)
 	visual_root.position = Vector3(
@@ -164,6 +171,41 @@ func visual_chunk_keys() -> Array:
 	var keys := visual_chunk_roots.keys()
 	keys.sort()
 	return keys
+
+
+func visual_chunk_y_layers() -> PackedInt32Array:
+	var seen_layers: Dictionary = {}
+	for key in visual_chunk_roots.keys():
+		var parts := String(key).split(":")
+		if parts.size() >= 3:
+			seen_layers[int(parts[1])] = true
+	var layers := PackedInt32Array()
+	for layer in seen_layers.keys():
+		layers.append(int(layer))
+	layers.sort()
+	return layers
+
+
+func expected_desired_chunk_count() -> int:
+	var config := streaming_config()
+	var horizontal_radius := load_radius_chunks
+	var vertical_radius := vertical_load_radius_chunks
+	if not config.is_empty():
+		horizontal_radius = int(config.get("load_radius_chunks", horizontal_radius))
+		vertical_radius = int(config.get("vertical_load_radius_chunks", vertical_radius))
+	return (
+		(2 * maxi(horizontal_radius, 0) + 1)
+		* (2 * maxi(horizontal_radius, 0) + 1)
+		* (2 * maxi(vertical_radius, 0) + 1)
+	)
+
+
+func streaming_config() -> Dictionary:
+	if streaming_node != null and streaming_node.has_method("describe_config"):
+		var config: Variant = streaming_node.call("describe_config")
+		if typeof(config) == TYPE_DICTIONARY:
+			return config
+	return {}
 
 
 func visual_root_pool_size() -> int:
@@ -238,16 +280,19 @@ func runtime_budget_contract() -> Dictionary:
 		"product_type": "RuntimeRealizationBudget",
 		"visual_backend": "multimesh",
 		"residency_root_pooling": true,
-		"max_pooled_visual_roots": max_pooled_visual_roots,
-		"load_radius_chunks": load_radius_chunks,
-		"unload_radius_chunks": unload_radius_chunks,
+			"max_pooled_visual_roots": max_pooled_visual_roots,
+			"load_radius_chunks": load_radius_chunks,
+			"unload_radius_chunks": unload_radius_chunks,
+			"vertical_load_radius_chunks": vertical_load_radius_chunks,
+			"vertical_unload_radius_chunks": vertical_unload_radius_chunks,
+			"expected_desired_chunks": expected_desired_chunk_count(),
 			"dirty_update_scope": "cell_visual_corners",
 			"dirty_cell_max_visual_corners": 4,
 			"dirty_realization_scope": "affected_multimesh_buckets",
 			"dirty_cell_max_bucket_rebuilds": 8,
 			"full_visual_rebuild_scope": "chunk_residency_or_backend_change",
-		"collision_backend": "box_per_blocking_policy_cell",
-		"collision_shape_policy": "one_box_per_blocking_policy_cell",
+		"collision_backend": "merged_collision_rectangles",
+		"collision_shape_policy": "shape_owner_per_merged_collision_rectangle",
 		"max_collision_shapes_per_chunk": cells_per_chunk * cells_per_chunk,
 		"provider_cache_entries": (
 			chunk_provider.cache_entry_count()
@@ -374,7 +419,7 @@ func _take_pooled_visual_root() -> Node3D:
 func _add_collision_if_enabled(
 	visual_root: Node3D,
 	chunk_coord: Vector3i,
-	generated_chunk_data: Dictionary
+	canonical_record: Dictionary
 ) -> void:
 	if not enable_collision_prototype or chunk_collision_builder == null:
 		return
@@ -383,7 +428,7 @@ func _add_collision_if_enabled(
 		liquid_blocks = bool(chunk_provider.generation_diagnostics().get("liquid_blocks_movement", true))
 	var collision_body: StaticBody3D = chunk_collision_builder.build_chunk_collision(
 		chunk_coord,
-		generated_chunk_data,
+		canonical_record,
 		chunk_edge_meters,
 		chunk_provider.chunk_size_cells,
 		{"liquid_blocks_movement": liquid_blocks}

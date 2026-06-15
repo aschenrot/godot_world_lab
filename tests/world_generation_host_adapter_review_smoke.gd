@@ -23,29 +23,29 @@ func test_visual_and_collision_adapters_consume_generated_products_without_ownin
 	var collision_builder: RefCounted = CollisionBuilder.new()
 	var catalog: RefCounted = Catalog.new()
 	var chunk_coord := Vector3i(2, 0, -3)
-	var generation_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
-	var generated_chunk_data: Dictionary = provider.make_generated_chunk_data(
-		chunk_coord,
-		generation_result["logic_grid"],
-		generation_result
-	)
-	var product_source := generated_chunk_data.duplicate(true)
-	product_source.erase("logic_grid")
+	var product_source: Dictionary = provider._generate_world_chunk_internal(chunk_coord).to_canonical_record(true)
 
 	_assert(
-		product_source.get("product_type", "") == "GeneratedChunkData",
-		"host adapter source is GeneratedChunkData"
+		product_source.get("product_type", "") == GeneratedWorldChunk.CANONICAL_RECORD_PRODUCT_TYPE,
+		"host adapter source is canonical GeneratedWorldChunkRecord"
 	)
-	_assert(product_source.has("formation_product_set"), "host adapter source carries FormationProductSet")
-	_assert(product_source.has("formation_layers"), "host adapter source carries formation compatibility layers")
-	_assert(product_source.has("topology_layers"), "host adapter source carries topology compatibility projections")
-	_assert(not product_source.has("logic_grid"), "host adapter source can omit logic_grid compatibility alias")
+	_assert(product_source.has("formation_products"), "host adapter source carries FormationProductSet")
+	_assert(product_source.has("topology_projection_set"), "host adapter source carries topology projection set")
+	_assert(product_source.has("topology_layers"), "host adapter source carries compact topology layers")
+	_assert(not product_source.has("logic_grid"), "host adapter source omits logic_grid compatibility alias")
 
 	var visual_contract: Dictionary = visual_builder.host_adapter_contract()
 	var collision_contract: Dictionary = collision_builder.host_adapter_contract()
-	var visual_plan: Dictionary = visual_builder.build_visual_plan_from_generated_chunk(
+	var visual_plan: Dictionary = visual_builder.build_visual_plan_from_canonical_source(
 		product_source,
 		catalog
+	)
+	var visual_root: Node3D = visual_builder.build_chunk_visual(
+		chunk_coord,
+		visual_plan,
+		catalog,
+		32.0,
+		provider.chunk_size_cells
 	)
 	var collision_plan: Dictionary = collision_builder.build_collision_plan(
 		chunk_coord,
@@ -63,20 +63,29 @@ func test_visual_and_collision_adapters_consume_generated_products_without_ownin
 	_assert(not bool(visual_contract.get("owns_generation_truth", true)), "visual adapter declares no generation ownership")
 	_assert(not bool(collision_contract.get("owns_generation_truth", true)), "collision adapter declares no generation ownership")
 	_assert(
-		visual_plan.get("source_generated_product_type", "") == "GeneratedChunkData",
-		"visual plan records GeneratedChunkData as its source product"
+		visual_plan.get("source_generated_product_type", "") == GeneratedWorldChunk.CANONICAL_RECORD_PRODUCT_TYPE,
+		"visual plan records canonical record as its source product"
 	)
 	_assert(
-		visual_plan.get("source_consumed_fields", PackedStringArray()).has("formation_layers"),
+		visual_plan.get("source_consumed_fields", PackedStringArray()).has("formation_products"),
 		"visual adapter consumes formation products before topology or logic aliases"
+	)
+	_assert(
+		not visual_plan.get("bucket_payloads", []).is_empty(),
+		"visual adapter emits packed bucket payloads for runtime realization"
+	)
+	_assert(
+		int(visual_root.get_meta("last_visual_bucket_count", 0))
+		== visual_plan.get("bucket_payloads", []).size(),
+		"visual realization creates one MultiMesh child per packed bucket"
 	)
 	_assert(
 		not _contains_forbidden_generation_payload_key(visual_plan),
 		"visual plan does not retain generation truth payloads"
 	)
 	_assert(
-		collision_plan.get("source_product_type", "") == "GeneratedChunkData",
-		"collision plan records GeneratedChunkData as its source product"
+		collision_plan.get("source_product_type", "") == GeneratedWorldChunk.CANONICAL_RECORD_PRODUCT_TYPE,
+		"collision plan records canonical record as its source product"
 	)
 	_assert(
 		collision_plan.get("source_consumed_fields", PackedStringArray()).has("topology_layers.solid"),
@@ -96,10 +105,11 @@ func test_visual_and_collision_adapters_consume_generated_products_without_ownin
 	)
 	_assert(
 		int(collision_body.get_meta("collision_shape_count", 0))
-		== collision_plan.get("blocking_cells", []).size(),
+		== collision_plan.get("merged_boxes", []).size(),
 		"collision realization still matches collision plan"
 	)
 
+	visual_root.free()
 	collision_body.free()
 	provider.free()
 

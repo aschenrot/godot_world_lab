@@ -7,8 +7,11 @@ const DEFAULT_PROFILE := "default"
 const DEFAULT_SAMPLE_COUNT := 64
 const DEFAULT_WARMUP_COUNT := 8
 const REQUIRED_PHASES := [
-	"canonical_uncached_generated_world_chunk",
-	"adapter_generated_chunk_data_output",
+	"canonical_runtime_uncached",
+	"canonical_report_uncached",
+	"truth_signature_hash",
+	"report_signature_hash",
+	"adapter_output_explicit",
 	"streaming_load_cache_miss",
 	"streaming_load_cache_hit",
 	"halo_topology_only_sampling",
@@ -18,15 +21,28 @@ const REQUIRED_PHASES := [
 ]
 const REQUIRED_SUBPHASES := [
 	"pipeline_validation",
-	"native_generation",
+	"native_compute",
+	"native_encode",
+	"godot_decode",
 	"topology_projection",
 	"formation",
+	"formation_product_conversion",
+	"report_product_emit",
+	"working_set_finalization",
+	"dictionary_copy",
+	"stage_report_build",
+	"canonical_record_encode",
+	"cache_store",
+	"runtime_call_overhead",
+	"runtime_load_overhead",
+	"truth_hash",
+	"report_hash",
 	"adapter_conversion",
 	"cache_lookup",
-	"cache_decode",
-	"visual_plan",
-	"visual_build",
-	"collision_plan",
+	"cache_record_decode",
+	"visual_native_plan",
+	"visual_bucket_build",
+	"collision_native_plan",
 	"collision_build",
 ]
 
@@ -45,13 +61,34 @@ func run(options: Dictionary = {}) -> Dictionary:
 	var phases: Dictionary = {}
 
 	var canonical_provider: Node = _configured_provider(false)
-	phases["canonical_uncached_generated_world_chunk"] = _time_world_chunk_phase(
+	phases["canonical_runtime_uncached"] = _time_world_chunk_phase(
 		warmup_coords,
 		sample_coords,
-		canonical_provider
+		canonical_provider,
+		false
+	)
+	var report_provider: Node = _configured_provider(false)
+	phases["canonical_report_uncached"] = _time_world_chunk_phase(
+		warmup_coords,
+		sample_coords,
+		report_provider,
+		true
+	)
+	var hash_chunks := _world_chunks_by_coord(_merged_coords(sample_coords, warmup_coords), false)
+	phases["truth_signature_hash"] = _time_hash_phase(
+		warmup_coords,
+		sample_coords,
+		hash_chunks,
+		"truth"
+	)
+	phases["report_signature_hash"] = _time_hash_phase(
+		warmup_coords,
+		sample_coords,
+		hash_chunks,
+		"report"
 	)
 	var adapter_provider: Node = _configured_provider(false)
-	phases["adapter_generated_chunk_data_output"] = _time_adapter_phase(
+	phases["adapter_output_explicit"] = _time_adapter_phase(
 		warmup_coords,
 		sample_coords,
 		adapter_provider
@@ -80,23 +117,26 @@ func run(options: Dictionary = {}) -> Dictionary:
 			"topology_only_fallbacks": int(halo_sampler.get("topology_only_fallback_count")),
 			"full_neighbor_generations": int(halo_sampler.get("full_neighbor_generation_count")),
 			"sample_cache_entries": halo_provider.formation_sample_cache_count(),
-		}
+		},
+		{},
+		"native_compute"
 	)
 
-	var generated_data_by_coord := _generated_data_by_coord(_merged_coords(sample_coords, warmup_coords))
+	var canonical_records_by_coord := _canonical_records_by_coord(_merged_coords(sample_coords, warmup_coords))
 	phases["visual_realization"] = _time_visual_phase(
 		warmup_coords,
 		sample_coords,
-		generated_data_by_coord
+		canonical_records_by_coord
 	)
-	phases["dirty_cell_visual_update"] = _time_dirty_phase(sample_coords, generated_data_by_coord)
+	phases["dirty_cell_visual_update"] = _time_dirty_phase(sample_coords, canonical_records_by_coord)
 	phases["collision_realization"] = _time_collision_phase(
 		warmup_coords,
 		sample_coords,
-		generated_data_by_coord
+		canonical_records_by_coord
 	)
 
 	canonical_provider.free()
+	report_provider.free()
 	adapter_provider.free()
 	load_provider.free()
 	halo_provider.free()
@@ -127,6 +167,12 @@ func is_report_valid(report: Dictionary) -> bool:
 		for subphase_id in REQUIRED_SUBPHASES:
 			if not subphases.has(subphase_id):
 				return false
+		var total_us := int(phase.get("total_us", 0))
+		var unattributed_us := int(phase.get("unattributed_us", -1))
+		if unattributed_us < 0:
+			return false
+		if total_us > 0 and float(unattributed_us) / float(total_us) > 0.05:
+			return false
 	return true
 
 
@@ -181,7 +227,8 @@ func _time_phase(
 	sample_coords: Array,
 	callable: Callable,
 	counter_callable: Callable = Callable(),
-	subphase_totals: Dictionary = {}
+	subphase_totals: Dictionary = {},
+	remainder_subphase: String = ""
 ) -> Dictionary:
 	for coord in warmup_coords:
 		_dispose_result(callable.call(coord))
@@ -191,20 +238,22 @@ func _time_phase(
 		var result: Variant = callable.call(coord)
 		_dispose_result(result)
 		elapsed_values.append(Time.get_ticks_usec() - start)
-	return _phase_result(elapsed_values, counter_callable, subphase_totals)
+	return _phase_result(elapsed_values, counter_callable, subphase_totals, remainder_subphase)
 
 
 func _time_world_chunk_phase(
 	warmup_coords: Array,
 	sample_coords: Array,
-	provider: Node
+	provider: Node,
+	report_mode: bool
 ) -> Dictionary:
+	var debug_flags := {"benchmark": true, "profiling_enabled": true, "diagnostics_enabled": true} if report_mode else {"benchmark": true}
 	for coord in warmup_coords:
 		provider._world_generation_session().generate_world_chunk(
 			coord,
 			false,
 			true,
-			{"benchmark": true, "profiling_enabled": true}
+			debug_flags
 		)
 	var elapsed_values: Array[int] = []
 	var subphase_totals := _zero_subphase_totals()
@@ -215,17 +264,52 @@ func _time_world_chunk_phase(
 			coord,
 			false,
 			true,
-			{"benchmark": true, "profiling_enabled": true}
+			debug_flags
 		)
-		elapsed_values.append(Time.get_ticks_usec() - start)
+		var elapsed := Time.get_ticks_usec() - start
+		elapsed_values.append(elapsed)
+		var before_attributed := _subphase_total(subphase_totals)
 		_accumulate_world_chunk_subphases(subphase_totals, world_chunk)
+		var attributed_delta := _subphase_total(subphase_totals) - before_attributed
+		subphase_totals["runtime_call_overhead"] += maxi(elapsed - attributed_delta, 0)
 		validation_issue_count += world_chunk.validation_issues.size()
 	return _phase_result(
 		elapsed_values,
 		func(): return {
 			"full_generation_calls": int(provider._world_generation_session().get("full_generation_call_count")),
 			"validation_issue_count": validation_issue_count,
+			"report_mode": report_mode,
 		},
+		subphase_totals
+	)
+
+
+func _time_hash_phase(
+	warmup_coords: Array,
+	sample_coords: Array,
+	world_chunks_by_coord: Dictionary,
+	hash_kind: String
+) -> Dictionary:
+	for coord in warmup_coords:
+		var warmup_chunk: GeneratedWorldChunk = world_chunks_by_coord[_coord_key(coord)]
+		if hash_kind == "report":
+			warmup_chunk.report_signature_hash()
+		else:
+			warmup_chunk.generated_truth_signature_hash()
+	var elapsed_values: Array[int] = []
+	var subphase_totals := _zero_subphase_totals()
+	var hash_total := 0
+	for coord in sample_coords:
+		var chunk: GeneratedWorldChunk = world_chunks_by_coord[_coord_key(coord)]
+		var start := Time.get_ticks_usec()
+		var hash_value := chunk.report_signature_hash() if hash_kind == "report" else chunk.generated_truth_signature_hash()
+		var elapsed := Time.get_ticks_usec() - start
+		hash_total = GeneratedChunkIdentity.mix_hash(hash_total, int(hash_value))
+		elapsed_values.append(elapsed)
+		subphase_totals["report_hash" if hash_kind == "report" else "truth_hash"] += elapsed
+	return _phase_result(
+		elapsed_values,
+		func(): return {"hash_kind": hash_kind, "hash_accumulator": hash_total},
 		subphase_totals
 	)
 
@@ -274,8 +358,17 @@ func _time_cache_load_phase(
 		provider._load_chunk_content(coord)
 		var elapsed := Time.get_ticks_usec() - start
 		elapsed_values.append(elapsed)
+		var before_attributed := _subphase_total(subphase_totals)
 		subphase_totals["cache_lookup"] += int(provider.get("last_cache_lookup_us"))
-		subphase_totals["cache_decode"] += int(provider.get("last_cache_decode_us"))
+		subphase_totals["cache_record_decode"] += int(provider.get("last_cache_decode_us"))
+		subphase_totals["canonical_record_encode"] += int(provider.get("last_canonical_record_encode_us"))
+		subphase_totals["cache_store"] += int(provider.get("last_cache_store_us"))
+		_accumulate_generation_diagnostics_subphases(
+			subphase_totals,
+			provider.get("last_generation_diagnostics")
+		)
+		var attributed_delta := _subphase_total(subphase_totals) - before_attributed
+		subphase_totals["runtime_load_overhead"] += maxi(elapsed - attributed_delta, 0)
 		if bool(provider.get("last_cache_hit_required_adapter_conversion")):
 			hit_adapter_conversion_count += 1
 	return _phase_result(
@@ -291,14 +384,14 @@ func _time_cache_load_phase(
 	)
 
 
-func _time_dirty_phase(sample_coords: Array, generated_data_by_coord: Dictionary) -> Dictionary:
+func _time_dirty_phase(sample_coords: Array, canonical_records_by_coord: Dictionary) -> Dictionary:
 	var builder: RefCounted = BuilderScript.new()
 	var catalog: RefCounted = CatalogScript.new()
 	var roots: Dictionary = {}
 	var logic_grids: Dictionary = {}
 	for coord in sample_coords:
-		var data: Dictionary = generated_data_by_coord[_coord_key(coord)]
-		var visual_plan: Dictionary = builder.build_visual_plan_from_generated_chunk(data, catalog)
+		var data: Dictionary = canonical_records_by_coord[_coord_key(coord)]
+		var visual_plan: Dictionary = builder.build_visual_plan_from_canonical_source(data, catalog)
 		roots[_coord_key(coord)] = builder.build_chunk_visual(
 			coord,
 			visual_plan,
@@ -306,7 +399,7 @@ func _time_dirty_phase(sample_coords: Array, generated_data_by_coord: Dictionary
 			32.0,
 			16
 		)
-		logic_grids[_coord_key(coord)] = data.get("logic_grid", []).duplicate(true)
+		logic_grids[_coord_key(coord)] = data.get("topology_layers", {}).get("solid", []).duplicate(true)
 
 	var elapsed_values: Array[int] = []
 	var subphase_totals := _zero_subphase_totals()
@@ -322,7 +415,7 @@ func _time_dirty_phase(sample_coords: Array, generated_data_by_coord: Dictionary
 		builder.update_dirty_cell(root, logic_grid, cell)
 		var elapsed := Time.get_ticks_usec() - start
 		elapsed_values.append(elapsed)
-		subphase_totals["visual_build"] += elapsed
+		subphase_totals["visual_bucket_build"] += elapsed
 		rebuilt_buckets += int(root.get_meta("last_dirty_bucket_rebuild_count", 0))
 		dirty_corners += int(root.get_meta("last_dirty_corner_count", 0))
 
@@ -340,13 +433,13 @@ func _time_dirty_phase(sample_coords: Array, generated_data_by_coord: Dictionary
 func _time_visual_phase(
 	warmup_coords: Array,
 	sample_coords: Array,
-	generated_data_by_coord: Dictionary
+	canonical_records_by_coord: Dictionary
 ) -> Dictionary:
 	var builder: RefCounted = BuilderScript.new()
 	var catalog: RefCounted = CatalogScript.new()
 	for coord in warmup_coords:
-		var warmup_data: Dictionary = generated_data_by_coord[_coord_key(coord)]
-		var warmup_plan: Dictionary = builder.build_visual_plan_from_generated_chunk(warmup_data, catalog)
+		var warmup_data: Dictionary = canonical_records_by_coord[_coord_key(coord)]
+		var warmup_plan: Dictionary = builder.build_visual_plan_from_canonical_source(warmup_data, catalog)
 		var warmup_root: Node3D = builder.build_chunk_visual(
 			coord,
 			warmup_plan,
@@ -363,10 +456,10 @@ func _time_visual_phase(
 	var child_count := 0
 	var skipped_empty_tiles := 0
 	for coord in sample_coords:
-		var data: Dictionary = generated_data_by_coord[_coord_key(coord)]
+		var data: Dictionary = canonical_records_by_coord[_coord_key(coord)]
 		var start := Time.get_ticks_usec()
 		var plan_start := Time.get_ticks_usec()
-		var visual_plan: Dictionary = builder.build_visual_plan_from_generated_chunk(data, catalog)
+		var visual_plan: Dictionary = builder.build_visual_plan_from_canonical_source(data, catalog)
 		var plan_elapsed := Time.get_ticks_usec() - plan_start
 		var build_start := Time.get_ticks_usec()
 		var root: Node3D = builder.build_chunk_visual(
@@ -378,8 +471,8 @@ func _time_visual_phase(
 		)
 		var build_elapsed := Time.get_ticks_usec() - build_start
 		elapsed_values.append(Time.get_ticks_usec() - start)
-		subphase_totals["visual_plan"] += plan_elapsed
-		subphase_totals["visual_build"] += build_elapsed
+		subphase_totals["visual_native_plan"] += plan_elapsed
+		subphase_totals["visual_bucket_build"] += build_elapsed
 		bucket_count += int(root.get_meta("last_visual_bucket_count", 0))
 		instance_count += int(root.get_meta("last_visual_instance_count", 0))
 		child_count += int(root.get_meta("last_visual_child_count", 0))
@@ -400,11 +493,11 @@ func _time_visual_phase(
 func _time_collision_phase(
 	warmup_coords: Array,
 	sample_coords: Array,
-	generated_data_by_coord: Dictionary
+	canonical_records_by_coord: Dictionary
 ) -> Dictionary:
 	var collision_builder: RefCounted = CollisionBuilderScript.new()
 	for coord in warmup_coords:
-		var warmup_data: Dictionary = generated_data_by_coord[_coord_key(coord)]
+		var warmup_data: Dictionary = canonical_records_by_coord[_coord_key(coord)]
 		var warmup_options := {
 			"cell_size_meters": 32.0 / 16.0,
 			"collision_height_meters": 0.8,
@@ -425,7 +518,7 @@ func _time_collision_phase(
 	var blocking_cell_count := 0
 	var merged_shape_count := 0
 	for coord in sample_coords:
-		var data: Dictionary = generated_data_by_coord[_coord_key(coord)]
+		var data: Dictionary = canonical_records_by_coord[_coord_key(coord)]
 		var options := {
 			"cell_size_meters": 32.0 / 16.0,
 			"collision_height_meters": 0.8,
@@ -445,11 +538,11 @@ func _time_collision_phase(
 		)
 		var build_elapsed := Time.get_ticks_usec() - build_start
 		elapsed_values.append(Time.get_ticks_usec() - start)
-		subphase_totals["collision_plan"] += plan_elapsed
+		subphase_totals["collision_native_plan"] += plan_elapsed
 		subphase_totals["collision_build"] += build_elapsed
 		var diagnostics: Dictionary = collision_plan.get("diagnostics", {})
 		blocking_cell_count += int(diagnostics.get("blocking_cell_count", 0))
-		merged_shape_count += int(diagnostics.get("merged_shape_count", body.get_child_count()))
+		merged_shape_count += int(diagnostics.get("merged_shape_count", int(body.get_meta("collision_shape_count", 0))))
 		body.free()
 	return _phase_result(
 		elapsed_values,
@@ -465,7 +558,8 @@ func _time_collision_phase(
 func _phase_result(
 	elapsed_values: Array[int],
 	counter_callable: Callable = Callable(),
-	subphase_totals: Dictionary = {}
+	subphase_totals: Dictionary = {},
+	remainder_subphase: String = ""
 ) -> Dictionary:
 	var sorted_values := elapsed_values.duplicate()
 	sorted_values.sort()
@@ -478,6 +572,11 @@ func _phase_result(
 		var counter_value: Variant = counter_callable.call()
 		if typeof(counter_value) == TYPE_DICTIONARY:
 			counters = counter_value
+	var attributed_total := _subphase_total(subphase_totals)
+	if not remainder_subphase.is_empty() and total > attributed_total:
+		subphase_totals[remainder_subphase] = int(subphase_totals.get(remainder_subphase, 0)) + (total - attributed_total)
+		attributed_total = total
+	var unattributed_us = maxi(total - attributed_total, 0)
 	return {
 		"sample_count": sample_count,
 		"min_us": int(sorted_values[0]) if sample_count > 0 else 0,
@@ -486,6 +585,9 @@ func _phase_result(
 		"max_us": int(sorted_values[sample_count - 1]) if sample_count > 0 else 0,
 		"avg_us": float(total) / float(maxi(sample_count, 1)),
 		"total_us": total,
+		"attributed_us": attributed_total,
+		"unattributed_us": unattributed_us,
+		"unattributed_ratio": 0.0 if total == 0 else float(unattributed_us) / float(total),
 		"subphases": _subphase_report(subphase_totals, sample_count),
 		"counters": counters,
 	}
@@ -516,22 +618,86 @@ func _subphase_report(subphase_totals: Dictionary, sample_count: int) -> Diction
 	return report
 
 
+func _subphase_total(subphase_totals: Dictionary) -> int:
+	var total := 0
+	for subphase_id in REQUIRED_SUBPHASES:
+		total += int(subphase_totals.get(subphase_id, 0))
+	return total
+
+
 func _accumulate_world_chunk_subphases(subphase_totals: Dictionary, world_chunk: GeneratedWorldChunk) -> void:
 	if world_chunk == null:
 		return
-	subphase_totals["pipeline_validation"] += int(world_chunk.generation_diagnostics.get("pipeline_validation_us", 0))
-	for stage_result in world_chunk.stage_results:
+	_accumulate_generation_diagnostics_subphases(subphase_totals, world_chunk.generation_diagnostics)
+	if world_chunk.generation_diagnostics.get("stage_profile", []).is_empty():
+		_accumulate_stage_result_subphases(subphase_totals, world_chunk.stage_results)
+
+
+func _accumulate_generation_diagnostics_subphases(subphase_totals: Dictionary, diagnostics_value: Variant) -> void:
+	if typeof(diagnostics_value) != TYPE_DICTIONARY:
+		return
+	var diagnostics: Dictionary = diagnostics_value
+	subphase_totals["pipeline_validation"] += int(diagnostics.get("pipeline_validation_us", 0))
+	var dictionary_copy_us := (
+		int(diagnostics.get("generated_products_copy_us", 0))
+		+ int(diagnostics.get("configure_copy_us", 0))
+	)
+	var stage_report_build_us := int(diagnostics.get("stage_report_build_us", 0))
+	var finalization_us := int(diagnostics.get("working_set_finalization_us", 0))
+	subphase_totals["dictionary_copy"] += dictionary_copy_us
+	subphase_totals["stage_report_build"] += stage_report_build_us
+	subphase_totals["working_set_finalization"] += maxi(
+		finalization_us - dictionary_copy_us - stage_report_build_us,
+		0
+	)
+	_accumulate_stage_profile_subphases(subphase_totals, diagnostics.get("stage_profile", []))
+
+
+func _accumulate_stage_result_subphases(subphase_totals: Dictionary, stage_results: Array) -> void:
+	var stage_profile: Array = []
+	for stage_result in stage_results:
 		if typeof(stage_result) != TYPE_DICTIONARY:
 			continue
 		var result: Dictionary = stage_result
-		var stage_id := String(result.get("stage_id", ""))
-		var diagnostics: Dictionary = result.get("diagnostics", {})
+		stage_profile.append({
+			"stage_id": result.get("stage_id", ""),
+			"elapsed_us": int(result.get("diagnostics", {}).get("elapsed_us", 0)),
+			"diagnostics": result.get("diagnostics", {}),
+		})
+	_accumulate_stage_profile_subphases(subphase_totals, stage_profile)
+
+
+func _accumulate_stage_profile_subphases(subphase_totals: Dictionary, stage_profile_value: Variant) -> void:
+	if typeof(stage_profile_value) != TYPE_ARRAY:
+		return
+	for stage_entry in stage_profile_value:
+		if typeof(stage_entry) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = stage_entry
+		var stage_id := String(entry.get("stage_id", ""))
+		var diagnostics: Dictionary = entry.get("diagnostics", {})
+		var elapsed_us := int(entry.get("elapsed_us", diagnostics.get("elapsed_us", 0)))
+		var attributed_us := 0
 		match stage_id:
 			"native_chunk_generation_stage":
-				subphase_totals["native_generation"] += int(diagnostics.get("native_generation_us", diagnostics.get("elapsed_us", 0)))
-				subphase_totals["topology_projection"] += int(diagnostics.get("topology_projection_us", 0))
+				var native_compute_us := int(diagnostics.get("native_compute_us", diagnostics.get("native_generation_us", 0)))
+				var native_encode_us := int(diagnostics.get("native_encode_us", 0))
+				var godot_decode_us := int(diagnostics.get("godot_decode_us", 0))
+				var topology_projection_us := int(diagnostics.get("topology_projection_us", 0))
+				var report_product_emit_us := int(diagnostics.get("optional_report_products_us", 0))
+				subphase_totals["native_compute"] += native_compute_us
+				subphase_totals["native_encode"] += native_encode_us
+				subphase_totals["godot_decode"] += godot_decode_us
+				subphase_totals["topology_projection"] += topology_projection_us
+				subphase_totals["report_product_emit"] += report_product_emit_us
+				attributed_us = native_compute_us + native_encode_us + godot_decode_us + topology_projection_us + report_product_emit_us
 			"native_formation_product_stage":
-				subphase_totals["formation"] += int(diagnostics.get("native_formation_us", diagnostics.get("elapsed_us", 0)))
+				var formation_us := int(diagnostics.get("native_formation_us", 0))
+				var formation_product_conversion_us := int(diagnostics.get("formation_product_set_build_us", 0))
+				subphase_totals["formation"] += formation_us
+				subphase_totals["formation_product_conversion"] += formation_product_conversion_us
+				attributed_us = formation_us + formation_product_conversion_us
+		subphase_totals["runtime_call_overhead"] += maxi(elapsed_us - attributed_us, 0)
 
 
 func _configured_provider(use_cache: bool) -> Node:
@@ -542,40 +708,28 @@ func _configured_provider(use_cache: bool) -> Node:
 	return provider
 
 
-func _generated_data_by_coord(coords: Array) -> Dictionary:
+func _canonical_records_by_coord(coords: Array) -> Dictionary:
 	var provider: Node = _configured_provider(false)
-	var data_by_coord: Dictionary = {}
+	var records_by_coord: Dictionary = {}
 	for coord in coords:
-		data_by_coord[_coord_key(coord)] = provider.make_generated_chunk_data(coord)
+		records_by_coord[_coord_key(coord)] = provider._generate_world_chunk_internal(coord).to_canonical_record(true)
 	provider.free()
-	return data_by_coord
+	return records_by_coord
 
 
-func _build_visual(generated_data: Dictionary) -> Variant:
-	var builder: RefCounted = BuilderScript.new()
-	var catalog: RefCounted = CatalogScript.new()
-	var visual_plan: Dictionary = builder.build_visual_plan_from_generated_chunk(generated_data, catalog)
-	var root: Node3D = builder.build_chunk_visual(
-		generated_data.get("chunk_coord", Vector3i.ZERO),
-		visual_plan,
-		catalog,
-		32.0,
-		16
-	)
-	root.free()
-	return null
-
-
-func _build_collision(generated_data: Dictionary) -> Variant:
-	var collision_builder: RefCounted = CollisionBuilderScript.new()
-	var body: StaticBody3D = collision_builder.build_chunk_collision(
-		generated_data.get("chunk_coord", Vector3i.ZERO),
-		generated_data,
-		32.0,
-		16
-	)
-	body.free()
-	return null
+func _world_chunks_by_coord(coords: Array, report_mode: bool) -> Dictionary:
+	var provider: Node = _configured_provider(false)
+	var chunks_by_coord: Dictionary = {}
+	var debug_flags := {"benchmark": true, "diagnostics_enabled": true, "profiling_enabled": true} if report_mode else {"benchmark": true}
+	for coord in coords:
+		chunks_by_coord[_coord_key(coord)] = provider._world_generation_session().generate_world_chunk(
+			coord,
+			false,
+			true,
+			debug_flags
+		)
+	provider.free()
+	return chunks_by_coord
 
 
 func _dispose_result(result: Variant) -> void:

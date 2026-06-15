@@ -19,10 +19,10 @@ func host_adapter_contract() -> Dictionary:
 		"adapter_id": "chunk_visual_builder",
 		"host_surface": "visual",
 		"consumes": PackedStringArray([
-			"GeneratedChunkData.formation_layers",
-			"GeneratedChunkData.formation_grid",
-			"GeneratedChunkData.topology_layers.solid",
-			"GeneratedChunkData.logic_grid_compatibility_alias",
+			"GeneratedWorldChunkRecord.formation_products",
+			"GeneratedWorldChunkRecord.topology_projection_set",
+			"GeneratedWorldChunk.formation_products",
+			"GeneratedWorldChunk.topology_projection_set",
 		]),
 		"produces": PackedStringArray([
 			"ChunkVisualPlan",
@@ -151,12 +151,72 @@ func build_visual_plan_from_generated_chunk(
 	)
 
 
+func build_visual_plan_from_canonical_source(
+	canonical_source: Variant,
+	catalog: RefCounted = null
+) -> Dictionary:
+	var canonical_record := _canonical_record_from_source(canonical_source)
+	if canonical_record.is_empty():
+		return _unavailable_mapper_plan(Vector3i.ZERO)
+	var plan_start_us := Time.get_ticks_usec()
+	var chunk_coord: Vector3i = canonical_record.get("chunk_coord", Vector3i.ZERO)
+	var formation_products: Dictionary = canonical_record.get("formation_products", {})
+	if topology_mapper != null and topology_mapper.has_method("visual_bucket_plan_payload"):
+		var visual_layer_specs: Array = []
+		for spec in _visual_layer_specs():
+			visual_layer_specs.append(spec)
+		var payload_variant: Variant = topology_mapper.call(
+			"visual_bucket_plan_payload",
+			chunk_coord,
+			formation_products,
+			visual_layer_specs
+		)
+		if typeof(payload_variant) == TYPE_DICTIONARY:
+			var native_plan: Dictionary = payload_variant
+			native_plan = _apply_catalog_transform_to_visual_plan(native_plan, catalog)
+			native_plan = _attach_canonical_source_metadata(
+				native_plan,
+				canonical_record,
+				PackedStringArray(["formation_products"])
+			)
+			native_plan["diagnostics"]["visual_plan_time_us"] = Time.get_ticks_usec() - plan_start_us
+			native_plan["diagnostics"]["visual_native_plan"] = true
+			native_plan["diagnostics"]["packed_bucket_payload_count"] = native_plan.get("bucket_payloads", []).size()
+			return native_plan
+
+	var fallback_data := {
+		"product_type": "GeneratedWorldChunkRecordVisualSource",
+		"authority": "canonical_record",
+		"chunk_coord": chunk_coord,
+		"formation_layers": formation_products.get("formation_layers", {}),
+		"diagnostics": canonical_record.get("record_diagnostics", {}),
+	}
+	var fallback_plan := _build_layered_visual_plan_from_generated_chunk(fallback_data, catalog)
+	fallback_plan = _attach_canonical_source_metadata(
+		fallback_plan,
+		canonical_record,
+		PackedStringArray(["formation_products.formation_layers"])
+	)
+	fallback_plan["diagnostics"]["visual_plan_time_us"] = Time.get_ticks_usec() - plan_start_us
+	fallback_plan["diagnostics"]["visual_native_plan"] = false
+	return fallback_plan
+
+
 func build_instantiation_plan(
 	chunk_coord: Vector3i,
 	visual_plan: Dictionary,
 	catalog: RefCounted,
 	visual_backend: String = "multimesh"
 ) -> Dictionary:
+	var bucket_payloads: Array = visual_plan.get("bucket_payloads", [])
+	if not bucket_payloads.is_empty():
+		return _build_instantiation_plan_from_bucket_payloads(
+			chunk_coord,
+			visual_plan,
+			catalog,
+			bucket_payloads,
+			visual_backend
+		)
 	var visual_tiles: Array = visual_plan.get("visual_tiles", visual_plan.get("tiles", []))
 	var multimesh_buckets: Dictionary = {}
 	var bucket_count := 0
@@ -197,8 +257,62 @@ func build_instantiation_plan(
 			"bucket_count": bucket_count,
 			"visual_plan_valid": visual_plan.get("diagnostics", {}).get("is_valid", true),
 			"effective_rotation_count": _effective_rotation_count(visual_tiles),
+			"skipped_empty_tile_count": int(visual_plan.get("diagnostics", {}).get("skipped_empty_visual_tiles", 0)),
 		},
 		"visual_tiles": visual_tiles,
+		"visual_layers": visual_plan.get("visual_layers", []),
+		"chunk_visual_plan": visual_plan,
+	}
+
+
+func _build_instantiation_plan_from_bucket_payloads(
+	chunk_coord: Vector3i,
+	visual_plan: Dictionary,
+	catalog: RefCounted,
+	bucket_payloads: Array,
+	visual_backend: String
+) -> Dictionary:
+	var multimesh_buckets: Dictionary = {}
+	var instance_count := 0
+	for payload_value in bucket_payloads:
+		var payload: Dictionary = payload_value
+		var layer_id := String(payload.get("layer_id", LAYER_SOLID))
+		var base_key := String(payload.get("base_key", payload.get("source_asset_key", "debug")))
+		if not multimesh_buckets.has(layer_id):
+			multimesh_buckets[layer_id] = {}
+		multimesh_buckets[layer_id][base_key] = {
+			"layer_id": layer_id,
+			"base_key": base_key,
+			"source_asset_key": String(payload.get("source_asset_key", base_key)),
+			"material_variant": String(payload.get("material_variant", layer_id)),
+			"instance_count": int(payload.get("instance_count", 0)),
+			"bucket_key": String(payload.get("bucket_key", "")),
+		}
+		instance_count += int(payload.get("instance_count", 0))
+
+	return {
+		"product_type": "ChunkInstantiationPlan",
+		"chunk_coord": chunk_coord,
+		"visual_backend": visual_backend,
+		"multimesh_buckets": multimesh_buckets,
+		"root_metadata": {
+			"chunk_coord": chunk_coord,
+			"visual_backend": visual_backend,
+			"visual_tile_count": instance_count,
+			"visual_layer_count": visual_plan.get("visual_layers", []).size(),
+			"missing_assets": visual_plan.get("missing_assets", []),
+		},
+		"diagnostics": {
+			"visual_tile_count": instance_count,
+			"visual_layer_count": visual_plan.get("visual_layers", []).size(),
+			"bucket_count": bucket_payloads.size(),
+			"visual_plan_valid": visual_plan.get("diagnostics", {}).get("is_valid", true),
+			"effective_rotation_count": _effective_rotation_count_from_bucket_payloads(bucket_payloads),
+			"skipped_empty_tile_count": int(visual_plan.get("diagnostics", {}).get("skipped_empty_visual_tiles", 0)),
+			"uses_packed_bucket_payloads": true,
+		},
+		"bucket_payloads": bucket_payloads,
+		"visual_tiles": visual_plan.get("visual_tiles", visual_plan.get("tiles", [])),
 		"visual_layers": visual_plan.get("visual_layers", []),
 		"chunk_visual_plan": visual_plan,
 	}
@@ -242,13 +356,29 @@ func build_chunk_visual_from_instantiation_plan(
 	var cell_size_meters: float = chunk_edge_meters / float(maxi(cells_per_chunk, 1))
 	root.set_meta("catalog", catalog)
 	root.set_meta("cell_size_meters", cell_size_meters)
-	root.set_meta("visual_tiles_by_corner", _tiles_by_corner(instantiation_plan.get("visual_tiles", [])))
+	var bucket_payloads: Array = instantiation_plan.get("bucket_payloads", [])
+	root.set_meta("visual_bucket_payloads", bucket_payloads)
+	var tiles_by_corner := _tiles_by_corner(instantiation_plan.get("visual_tiles", []))
+	root.set_meta("visual_tiles_by_corner", tiles_by_corner)
+	root.set_meta(
+		"visual_bucket_members",
+		_bucket_members_from_bucket_payloads(bucket_payloads)
+		if not bucket_payloads.is_empty()
+		else _bucket_members_from_tiles_by_corner(tiles_by_corner, catalog)
+	)
 	root.set_meta("visual_tile_count", int(instantiation_plan.get("visual_tiles", []).size()))
 	root.set_meta("visual_layer_count", int(instantiation_plan.get("visual_layers", []).size()))
+	root.set_meta(
+		"visual_skipped_empty_tile_count",
+		int(instantiation_plan.get("diagnostics", {}).get("skipped_empty_tile_count", 0))
+	)
 	root.set_meta("visual_backend", instantiation_plan["visual_backend"])
 	root.set_meta("chunk_instantiation_plan", instantiation_plan)
 	root.set_meta("last_dirty_corner_count", 0)
+	root.set_meta("last_dirty_affected_bucket_count", 0)
 	root.set_meta("last_dirty_bucket_rebuild_count", 0)
+	root.set_meta("last_dirty_reused_bucket_count", 0)
+	root.set_meta("last_dirty_removed_bucket_count", 0)
 	root.set_meta("last_visual_plan_time_us", int(instantiation_plan.get("diagnostics", {}).get("visual_plan_time_us", 0)))
 	root.set_meta("last_visual_bucket_build_time_us", 0)
 	root.set_meta("last_visual_node_attach_time_us", 0)
@@ -280,12 +410,17 @@ func build_chunk_visual_array_mesh(
 	root.set_meta("catalog", catalog)
 	var cell_size_meters: float = chunk_edge_meters / float(maxi(cells_per_chunk, 1))
 	root.set_meta("cell_size_meters", cell_size_meters)
-	root.set_meta("visual_tiles_by_corner", _tiles_by_corner(visual_plan.get("visual_tiles", visual_plan.get("tiles", []))))
+	var array_tiles_by_corner := _tiles_by_corner(visual_plan.get("visual_tiles", visual_plan.get("tiles", [])))
+	root.set_meta("visual_tiles_by_corner", array_tiles_by_corner)
+	root.set_meta("visual_bucket_members", _bucket_members_from_tiles_by_corner(array_tiles_by_corner, catalog))
 	root.set_meta("visual_tile_count", int(visual_plan.get("visual_tiles", visual_plan.get("tiles", [])).size()))
 	root.set_meta("visual_layer_count", int(visual_plan.get("visual_layers", []).size()))
 	root.set_meta("visual_backend", "array_mesh")
 	root.set_meta("last_dirty_corner_count", 0)
+	root.set_meta("last_dirty_affected_bucket_count", 0)
 	root.set_meta("last_dirty_bucket_rebuild_count", 0)
+	root.set_meta("last_dirty_reused_bucket_count", 0)
+	root.set_meta("last_dirty_removed_bucket_count", 0)
 	root.set_meta("last_visual_plan_time_us", 0)
 	root.set_meta("last_visual_bucket_build_time_us", 0)
 	root.set_meta("last_visual_node_attach_time_us", 0)
@@ -314,13 +449,18 @@ func destroy_or_pool(chunk_root: Node3D, pool: Array[Node3D], max_pool_size: int
 	_remove_meta_if_present(chunk_root, "chunk_coord")
 	_remove_meta_if_present(chunk_root, "catalog")
 	_remove_meta_if_present(chunk_root, "cell_size_meters")
+	_remove_meta_if_present(chunk_root, "visual_bucket_payloads")
 	_remove_meta_if_present(chunk_root, "visual_tiles_by_corner")
+	_remove_meta_if_present(chunk_root, "visual_bucket_members")
 	_remove_meta_if_present(chunk_root, "visual_tile_count")
 	_remove_meta_if_present(chunk_root, "visual_layer_count")
 	_remove_meta_if_present(chunk_root, "visual_backend")
 	_remove_meta_if_present(chunk_root, "chunk_instantiation_plan")
 	_remove_meta_if_present(chunk_root, "last_dirty_corner_count")
+	_remove_meta_if_present(chunk_root, "last_dirty_affected_bucket_count")
 	_remove_meta_if_present(chunk_root, "last_dirty_bucket_rebuild_count")
+	_remove_meta_if_present(chunk_root, "last_dirty_reused_bucket_count")
+	_remove_meta_if_present(chunk_root, "last_dirty_removed_bucket_count")
 	_remove_meta_if_present(chunk_root, "last_visual_plan_time_us")
 	_remove_meta_if_present(chunk_root, "last_visual_bucket_build_time_us")
 	_remove_meta_if_present(chunk_root, "last_visual_node_attach_time_us")
@@ -358,21 +498,28 @@ func update_visual_tiles(chunk_root: Node3D, visual_tile_data_array: Array) -> i
 		return 0
 
 	var tiles_by_corner: Dictionary = chunk_root.get_meta("visual_tiles_by_corner")
+	var bucket_members: Dictionary = chunk_root.get_meta("visual_bucket_members", {})
 	var affected_bucket_keys: Dictionary = {}
 	var catalog: RefCounted = chunk_root.get_meta("catalog", null)
 	for tile in visual_tile_data_array:
 		var data: Dictionary = tile
 		var key := _tile_storage_key(data)
 		if tiles_by_corner.has(key):
-			affected_bucket_keys[_bucket_key_for_tile(tiles_by_corner[key], catalog)] = true
+			var old_bucket_key := _bucket_key_for_tile(tiles_by_corner[key], catalog)
+			affected_bucket_keys[old_bucket_key] = true
+			_remove_storage_key_from_bucket_members(bucket_members, old_bucket_key, key)
 		if data["is_empty"]:
 			tiles_by_corner.erase(key)
 		else:
 			tiles_by_corner[key] = data
-			affected_bucket_keys[_bucket_key_for_tile(data, catalog)] = true
+			var new_bucket_key := _bucket_key_for_tile(data, catalog)
+			affected_bucket_keys[new_bucket_key] = true
+			_add_storage_key_to_bucket_members(bucket_members, new_bucket_key, key)
 
 	chunk_root.set_meta("visual_tiles_by_corner", tiles_by_corner)
+	chunk_root.set_meta("visual_bucket_members", bucket_members)
 	chunk_root.set_meta("last_dirty_corner_count", visual_tile_data_array.size())
+	chunk_root.set_meta("last_dirty_affected_bucket_count", affected_bucket_keys.size())
 	var rebuilt_bucket_count := _rebuild_multimesh_buckets(chunk_root, affected_bucket_keys)
 	chunk_root.set_meta("last_dirty_bucket_rebuild_count", rebuilt_bucket_count)
 	return visual_tile_data_array.size()
@@ -440,6 +587,146 @@ func _attach_generated_chunk_source_metadata(
 	}
 	next_plan["diagnostics"] = diagnostics
 	return next_plan
+
+
+func _attach_canonical_source_metadata(
+	visual_plan: Dictionary,
+	canonical_record: Dictionary,
+	source_consumed_fields: PackedStringArray
+) -> Dictionary:
+	var next_plan := visual_plan.duplicate(true)
+	next_plan["source_generated_product_type"] = canonical_record.get("product_type", "")
+	next_plan["source_authority"] = "canonical_record"
+	next_plan["source_consumed_fields"] = source_consumed_fields.duplicate()
+	next_plan["host_adapter_contract"] = host_adapter_contract()
+	var diagnostics: Dictionary = next_plan.get("diagnostics", {}).duplicate(true)
+	diagnostics["host_adapter"] = {
+		"adapter_id": "chunk_visual_builder",
+		"owns_generation_truth": false,
+		"source_consumed_fields": source_consumed_fields.duplicate(),
+		"canonical_runtime_input": true,
+	}
+	next_plan["diagnostics"] = diagnostics
+	return next_plan
+
+
+func _canonical_record_from_source(source: Variant) -> Dictionary:
+	if typeof(source) == TYPE_DICTIONARY:
+		var data: Dictionary = source
+		if data.get("product_type", "") == GeneratedWorldChunk.CANONICAL_RECORD_PRODUCT_TYPE \
+			or data.has("formation_products") \
+			or data.has("topology_projection_set"):
+			return data.duplicate(true)
+	if typeof(source) == TYPE_OBJECT and source != null and source.has_method("to_canonical_record"):
+		var record: Variant = source.call("to_canonical_record", true)
+		if typeof(record) == TYPE_DICTIONARY:
+			return record
+	return {}
+
+
+func _apply_catalog_transform_to_visual_plan(visual_plan: Dictionary, catalog: RefCounted) -> Dictionary:
+	var next_plan := visual_plan.duplicate(true)
+	var native_bucket_payloads: Array = next_plan.get("native_bucket_payloads", [])
+	if not native_bucket_payloads.is_empty():
+		next_plan["bucket_payloads"] = _bucket_payloads_with_catalog_transforms(
+			native_bucket_payloads,
+			catalog
+		)
+	var transformed_tiles := _tiles_with_catalog_transforms(
+		next_plan.get("visual_tiles", next_plan.get("tiles", [])),
+		catalog
+	)
+	next_plan["visual_tiles"] = transformed_tiles
+	next_plan["tiles"] = transformed_tiles
+	var visual_layers: Array = []
+	for layer in next_plan.get("visual_layers", []):
+		var layer_plan: Dictionary = layer
+		var next_layer := layer_plan.duplicate(true)
+		next_layer["visual_tiles"] = _tiles_with_catalog_transforms(
+			next_layer.get("visual_tiles", []),
+			catalog
+		)
+		visual_layers.append(next_layer)
+	next_plan["visual_layers"] = visual_layers
+	return next_plan
+
+
+func _bucket_payloads_with_catalog_transforms(native_bucket_payloads: Array, catalog: RefCounted) -> Array:
+	var buckets_by_key: Dictionary = {}
+	for payload_value in native_bucket_payloads:
+		var payload: Dictionary = payload_value
+		var source_asset_key: String = String(payload.get("source_asset_key", "debug"))
+		var base_key: String = catalog.base_key_for_asset_key(source_asset_key) if catalog != null else source_asset_key
+		var layer_id: String = String(payload.get("layer_id", LAYER_SOLID))
+		var material_variant: String = String(payload.get("material_variant", layer_id))
+		var bucket_key: String = "%s|%s|%s" % [layer_id, base_key, material_variant]
+		var transform_info: Dictionary = _tile_transform_info(
+			catalog,
+			source_asset_key,
+			int(_packed_i32_value(payload.get("rotation_degrees_cw", PackedInt32Array()), 0, 0))
+		)
+		if not buckets_by_key.has(bucket_key):
+			buckets_by_key[bucket_key] = {
+				"bucket_key": bucket_key,
+				"layer_id": layer_id,
+				"source_topology_layer": String(payload.get("source_topology_layer", layer_id)),
+				"asset_namespace": String(payload.get("asset_namespace", layer_id)),
+				"material_variant": material_variant,
+				"base_key": base_key,
+				"source_asset_key": source_asset_key,
+				"height_offset": float(payload.get("height_offset", 0.0)),
+				"catalog_flip_x": bool(transform_info.get("flip_x", false)),
+				"catalog_flip_z": bool(transform_info.get("flip_z", false)),
+				"corner_x": PackedInt32Array(),
+				"corner_y": PackedInt32Array(),
+				"effective_rotation_degrees_cw": PackedInt32Array(),
+				"descriptor_rotation_degrees_cw": PackedInt32Array(),
+				"mask": PackedInt32Array(),
+				"instance_count": 0,
+			}
+		var bucket: Dictionary = buckets_by_key[bucket_key]
+		var corner_x = payload.get("corner_x", PackedInt32Array())
+		var corner_y = payload.get("corner_y", PackedInt32Array())
+		var rotations = payload.get("rotation_degrees_cw", PackedInt32Array())
+		var masks = payload.get("mask", PackedInt32Array())
+		for index in range(int(payload.get("instance_count", 0))):
+			var descriptor_rotation := _packed_i32_value(rotations, index, 0)
+			var instance_transform_info := _tile_transform_info(catalog, source_asset_key, descriptor_rotation)
+			_append_payload_i32(bucket, "corner_x", _packed_i32_value(corner_x, index, 0))
+			_append_payload_i32(bucket, "corner_y", _packed_i32_value(corner_y, index, 0))
+			_append_payload_i32(bucket, "descriptor_rotation_degrees_cw", descriptor_rotation)
+			_append_payload_i32(
+				bucket,
+				"effective_rotation_degrees_cw",
+				int(instance_transform_info.get("effective_rotation_degrees_cw", descriptor_rotation))
+			)
+			_append_payload_i32(bucket, "mask", _packed_i32_value(masks, index, 0))
+			bucket["instance_count"] = int(bucket.get("instance_count", 0)) + 1
+		buckets_by_key[bucket_key] = bucket
+	var bucket_keys := buckets_by_key.keys()
+	bucket_keys.sort()
+	var bucket_payloads: Array = []
+	for bucket_key in bucket_keys:
+		bucket_payloads.append(buckets_by_key[bucket_key])
+	return bucket_payloads
+
+
+func _tiles_with_catalog_transforms(tiles: Array, catalog: RefCounted) -> Array:
+	var transformed: Array[Dictionary] = []
+	for tile in tiles:
+		var data: Dictionary = tile
+		var next_tile := data.duplicate(true)
+		var asset_key := String(next_tile.get("asset_key", ""))
+		var descriptor_rotation := int(next_tile.get("rotation_degrees_cw", 0))
+		var transform_info := _tile_transform_info(catalog, asset_key, descriptor_rotation)
+		next_tile["descriptor_rotation_degrees_cw"] = transform_info["descriptor_rotation_degrees_cw"]
+		next_tile["catalog_rotation_correction_degrees_cw"] = transform_info["catalog_rotation_correction_degrees_cw"]
+		next_tile["effective_rotation_degrees_cw"] = transform_info["effective_rotation_degrees_cw"]
+		next_tile["canonical_rotation_degrees_cw"] = transform_info["canonical_rotation_degrees_cw"]
+		next_tile["catalog_flip_x"] = transform_info["flip_x"]
+		next_tile["catalog_flip_z"] = transform_info["flip_z"]
+		transformed.append(next_tile)
+	return transformed
 
 
 func _unavailable_mapper_plan(chunk_coord: Vector3i) -> Dictionary:
@@ -672,6 +959,58 @@ func _tile_transform(tile_data: Dictionary, cell_size_meters: float) -> Transfor
 	return Transform3D(basis, origin)
 
 
+func _bucket_payload_transform(payload: Dictionary, index: int, cell_size_meters: float) -> Transform3D:
+	var corner_x = payload.get("corner_x", PackedInt32Array())
+	var corner_y = payload.get("corner_y", PackedInt32Array())
+	var rotations = payload.get("effective_rotation_degrees_cw", PackedInt32Array())
+	var origin := Vector3(
+		float(_packed_i32_value(corner_x, index, 0)) * cell_size_meters,
+		float(payload.get("height_offset", 0.0)),
+		float(_packed_i32_value(corner_y, index, 0)) * cell_size_meters
+	)
+	var basis := Basis(
+		Vector3.UP,
+		deg_to_rad(float(-_packed_i32_value(rotations, index, 0)))
+	)
+	var scale := Vector3(
+		-1.0 if bool(payload.get("catalog_flip_x", false)) else 1.0,
+		1.0,
+		-1.0 if bool(payload.get("catalog_flip_z", false)) else 1.0
+	)
+	basis = basis.scaled(scale * Vector3(cell_size_meters, 1.0, cell_size_meters))
+	return Transform3D(basis, origin)
+
+
+func _sample_tile_from_bucket_payload(payload: Dictionary) -> Dictionary:
+	return {
+		"layer_id": String(payload.get("layer_id", LAYER_SOLID)),
+		"source_topology_layer": String(payload.get("source_topology_layer", payload.get("layer_id", LAYER_SOLID))),
+		"asset_namespace": String(payload.get("asset_namespace", payload.get("layer_id", LAYER_SOLID))),
+		"material_variant": String(payload.get("material_variant", payload.get("layer_id", LAYER_SOLID))),
+		"height_offset": float(payload.get("height_offset", 0.0)),
+		"asset_key": String(payload.get("source_asset_key", payload.get("base_key", "debug"))),
+		"is_empty": false,
+	}
+
+
+func _packed_i32_value(values: Variant, index: int, default_value: int) -> int:
+	if typeof(values) == TYPE_PACKED_INT32_ARRAY:
+		var packed: PackedInt32Array = values
+		if index >= 0 and index < packed.size():
+			return int(packed[index])
+	if typeof(values) == TYPE_ARRAY:
+		var array_values: Array = values
+		if index >= 0 and index < array_values.size():
+			return int(array_values[index])
+	return default_value
+
+
+func _append_payload_i32(payload: Dictionary, key: String, value: int) -> void:
+	var values: PackedInt32Array = payload.get(key, PackedInt32Array())
+	values.append(value)
+	payload[key] = values
+
+
 func _tiles_by_corner(tiles: Array) -> Dictionary:
 	var by_corner: Dictionary = {}
 	for tile in tiles:
@@ -680,6 +1019,61 @@ func _tiles_by_corner(tiles: Array) -> Dictionary:
 			continue
 		by_corner[_tile_storage_key(data)] = data
 	return by_corner
+
+
+func _bucket_members_from_bucket_payloads(bucket_payloads: Array) -> Dictionary:
+	var bucket_members: Dictionary = {}
+	for payload_value in bucket_payloads:
+		var payload: Dictionary = payload_value
+		var bucket_key := String(payload.get("bucket_key", ""))
+		var layer_id := String(payload.get("layer_id", LAYER_SOLID))
+		var corner_x = payload.get("corner_x", PackedInt32Array())
+		var corner_y = payload.get("corner_y", PackedInt32Array())
+		for index in range(int(payload.get("instance_count", 0))):
+			var storage_key := "%s|%s,%s" % [
+				layer_id,
+				_packed_i32_value(corner_x, index, 0),
+				_packed_i32_value(corner_y, index, 0),
+			]
+			_add_storage_key_to_bucket_members(bucket_members, bucket_key, storage_key)
+	return bucket_members
+
+
+func _effective_rotation_count_from_bucket_payloads(bucket_payloads: Array) -> int:
+	var rotations_seen: Dictionary = {}
+	for payload_value in bucket_payloads:
+		var payload: Dictionary = payload_value
+		var rotations = payload.get("effective_rotation_degrees_cw", PackedInt32Array())
+		for index in range(int(payload.get("instance_count", 0))):
+			rotations_seen[_packed_i32_value(rotations, index, 0)] = true
+	return rotations_seen.size()
+
+
+func _bucket_members_from_tiles_by_corner(tiles_by_corner: Dictionary, catalog: RefCounted) -> Dictionary:
+	var bucket_members: Dictionary = {}
+	for storage_key in tiles_by_corner.keys():
+		var data: Dictionary = tiles_by_corner[storage_key]
+		var bucket_key := _bucket_key_for_tile(data, catalog)
+		_add_storage_key_to_bucket_members(bucket_members, bucket_key, String(storage_key))
+	return bucket_members
+
+
+func _add_storage_key_to_bucket_members(bucket_members: Dictionary, bucket_key: String, storage_key: String) -> void:
+	var members: Array = bucket_members.get(bucket_key, [])
+	if not members.has(storage_key):
+		members.append(storage_key)
+	bucket_members[bucket_key] = members
+
+
+func _remove_storage_key_from_bucket_members(bucket_members: Dictionary, bucket_key: String, storage_key: String) -> void:
+	if not bucket_members.has(bucket_key):
+		return
+	var members: Array = bucket_members[bucket_key]
+	members.erase(storage_key)
+	if members.is_empty():
+		bucket_members.erase(bucket_key)
+	else:
+		bucket_members[bucket_key] = members
 
 
 func _tile_storage_key(tile_data: Dictionary) -> String:
@@ -755,26 +1149,42 @@ func _rebuild_multimesh_buckets(root: Node3D, bucket_filter: Dictionary = {}) ->
 
 	var catalog: RefCounted = root.get_meta("catalog")
 	var cell_size_meters: float = root.get_meta("cell_size_meters")
+	var bucket_payloads: Array = root.get_meta("visual_bucket_payloads", [])
+	if not bucket_payloads.is_empty() and bucket_filter.is_empty():
+		return _rebuild_multimesh_buckets_from_payloads(root, bucket_payloads, catalog, cell_size_meters, build_start_us)
 	var visual_tiles_by_corner: Dictionary = root.get_meta("visual_tiles_by_corner")
+	var bucket_members: Dictionary = root.get_meta("visual_bucket_members", {})
+	if bucket_members.is_empty() and not visual_tiles_by_corner.is_empty():
+		bucket_members = _bucket_members_from_tiles_by_corner(visual_tiles_by_corner, catalog)
+		root.set_meta("visual_bucket_members", bucket_members)
 	var transforms_by_bucket: Dictionary = {}
 	var sample_tile_by_bucket: Dictionary = {}
 	var instance_total := 0
+	var removed_bucket_count := 0
+	var reused_bucket_count := 0
 
-	for storage_key in visual_tiles_by_corner:
-		var data: Dictionary = visual_tiles_by_corner[storage_key]
-		var bucket_key := _bucket_key_for_tile(data, catalog)
-		if not bucket_filter.is_empty() and not bucket_filter.has(bucket_key):
-			continue
-		if not transforms_by_bucket.has(bucket_key):
-			transforms_by_bucket[bucket_key] = []
-			sample_tile_by_bucket[bucket_key] = data
-		transforms_by_bucket[bucket_key].append(_tile_transform(data, cell_size_meters))
+	var bucket_keys_to_scan: Array = bucket_filter.keys() if not bucket_filter.is_empty() else bucket_members.keys()
+	bucket_keys_to_scan.sort()
+	for bucket_key_variant in bucket_keys_to_scan:
+		var bucket_key := String(bucket_key_variant)
+		var storage_keys: Array = bucket_members.get(bucket_key, [])
+		for storage_key_variant in storage_keys:
+			var storage_key := String(storage_key_variant)
+			if not visual_tiles_by_corner.has(storage_key):
+				continue
+			var data: Dictionary = visual_tiles_by_corner[storage_key]
+			if not transforms_by_bucket.has(bucket_key):
+				transforms_by_bucket[bucket_key] = []
+				sample_tile_by_bucket[bucket_key] = data
+			transforms_by_bucket[bucket_key].append(_tile_transform(data, cell_size_meters))
 
 	var bucket_keys: Array = transforms_by_bucket.keys()
 	bucket_keys.sort()
 	var rebuilt_bucket_count := 0
 	var attach_time_us := 0
 	for bucket_key in bucket_keys:
+		if _bucket_instance(root, String(bucket_key)) != null:
+			reused_bucket_count += 1
 		var sample_tile: Dictionary = sample_tile_by_bucket[bucket_key]
 		var source_asset_key: String = sample_tile["asset_key"]
 		var mesh: Mesh = catalog.get_mesh(source_asset_key)
@@ -799,6 +1209,7 @@ func _rebuild_multimesh_buckets(root: Node3D, bucket_filter: Dictionary = {}) ->
 		for filtered_bucket_key in bucket_filter.keys():
 			if not transforms_by_bucket.has(filtered_bucket_key):
 				_remove_bucket_instance(root, String(filtered_bucket_key))
+				removed_bucket_count += 1
 				rebuilt_bucket_count += 1
 
 	root.set_meta("last_visual_bucket_build_time_us", Time.get_ticks_usec() - build_start_us)
@@ -807,6 +1218,60 @@ func _rebuild_multimesh_buckets(root: Node3D, bucket_filter: Dictionary = {}) ->
 	root.set_meta("last_visual_instance_count", _multimesh_instance_total(root))
 	root.set_meta("last_visual_child_count", root.get_child_count())
 	root.set_meta("last_visual_skipped_empty_tile_count", maxi(int(root.get_meta("visual_tile_count", 0)) - visual_tiles_by_corner.size(), 0))
+	root.set_meta("last_dirty_reused_bucket_count", reused_bucket_count)
+	root.set_meta("last_dirty_removed_bucket_count", removed_bucket_count)
+	return rebuilt_bucket_count
+
+
+func _rebuild_multimesh_buckets_from_payloads(
+	root: Node3D,
+	bucket_payloads: Array,
+	catalog: RefCounted,
+	cell_size_meters: float,
+	build_start_us: int
+) -> int:
+	var attach_time_us := 0
+	var instance_total := 0
+	var rebuilt_bucket_count := 0
+	for payload_value in bucket_payloads:
+		var payload: Dictionary = payload_value
+		var source_asset_key := String(payload.get("source_asset_key", payload.get("base_key", "debug")))
+		var mesh_key := String(payload.get("base_key", source_asset_key))
+		var mesh: Mesh = catalog.get_mesh(mesh_key) if catalog != null else null
+		if mesh == null:
+			continue
+		var instance_count := int(payload.get("instance_count", 0))
+		var multimesh := MultiMesh.new()
+		multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		multimesh.mesh = mesh
+		multimesh.instance_count = instance_count
+		for index in range(instance_count):
+			multimesh.set_instance_transform(
+				index,
+				_bucket_payload_transform(payload, index, cell_size_meters)
+			)
+		var sample_tile := _sample_tile_from_bucket_payload(payload)
+		var attach_start_us := Time.get_ticks_usec()
+		_upsert_bucket_instance(
+			root,
+			String(payload.get("bucket_key", "")),
+			multimesh,
+			sample_tile,
+			source_asset_key,
+			catalog
+		)
+		attach_time_us += Time.get_ticks_usec() - attach_start_us
+		instance_total += instance_count
+		rebuilt_bucket_count += 1
+
+	root.set_meta("last_visual_bucket_build_time_us", Time.get_ticks_usec() - build_start_us)
+	root.set_meta("last_visual_node_attach_time_us", attach_time_us)
+	root.set_meta("last_visual_bucket_count", _bucket_child_count(root))
+	root.set_meta("last_visual_instance_count", instance_total)
+	root.set_meta("last_visual_child_count", root.get_child_count())
+	root.set_meta("last_visual_skipped_empty_tile_count", int(root.get_meta("visual_skipped_empty_tile_count", 0)))
+	root.set_meta("last_dirty_reused_bucket_count", 0)
+	root.set_meta("last_dirty_removed_bucket_count", 0)
 	return rebuilt_bucket_count
 
 

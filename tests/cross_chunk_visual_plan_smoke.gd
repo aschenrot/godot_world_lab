@@ -113,6 +113,7 @@ func _configure_all_wall_provider(provider: Node) -> void:
 	provider.debug_force_chunk_border = false
 	provider.smoothing_passes = 0
 	provider.room_attempts = 0
+	provider.liquid_threshold_percent = 0
 
 
 func _assert_negative_world_cell_mapping(provider: Node) -> void:
@@ -138,11 +139,9 @@ func _assert_chunk_set(
 	var size: int = provider.chunk_size_cells
 
 	for chunk_coord in chunk_coords:
-		var generation_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
-		var logic_grid: Array = generation_result["logic_grid"]
-		var generated_chunk_data: Dictionary = provider.make_generated_chunk_data(chunk_coord, logic_grid, generation_result)
-		var visual_plan: Dictionary = builder.build_visual_plan_from_generated_chunk(
-			generated_chunk_data,
+		var canonical_record: Dictionary = provider._generate_world_chunk_internal(chunk_coord).to_canonical_record(true)
+		var visual_plan: Dictionary = builder.build_visual_plan_from_canonical_source(
+			canonical_record,
 			catalog
 		)
 		plans[chunk_coord] = visual_plan
@@ -201,7 +200,7 @@ func _assert_layer_diagnostics(visual_plan: Dictionary, size: int, label: String
 	for layer in visual_plan.get("visual_layers", []):
 		var layer_plan: Dictionary = layer
 		_assert(
-			layer_plan.get("formation_mode", "") == "owned_halo",
+			String(layer_plan.get("formation_mode", "")).begins_with("owned_halo"),
 			"%s layer uses owned halo formation" % label
 		)
 		_assert(

@@ -31,6 +31,11 @@ func _process(_delta: float) -> bool:
 		_assert(controller.streaming_node != null, "playground installs streaming node")
 		_assert(controller.chunk_provider != null, "playground installs provider")
 		_assert(controller.visual_chunk_count() > 0, "playground creates visual chunks")
+		_assert(controller.visual_chunk_y_layers().size() == 1, "playground loads one terrain Y layer")
+		_assert(
+			controller.expected_desired_chunk_count() == 81,
+			"playground desired chunk count uses one terrain layer"
+		)
 		player_rig.global_position = Vector3(512.0, 36.0, 0.0)
 
 	if frame == 18:
@@ -39,6 +44,7 @@ func _process(_delta: float) -> bool:
 	if frame == 36:
 		_assert(controller.chunk_provider.completed_unload_count > 0, "movement streams chunks out")
 		_assert(controller.visual_chunk_count() == controller.visual_chunk_keys().size(), "no duplicate roots")
+		_assert(controller.visual_chunk_y_layers().size() == 1, "movement keeps one terrain Y layer")
 		_assert(controller.visual_roots_have_matching_metadata(), "no orphan root metadata")
 		_assert(controller.visual_root_pool_size() <= controller.max_pooled_visual_roots, "pool is bounded")
 		_assert(controller.chunk_provider.pending_request_count() == 0, "provider pending requests drain")

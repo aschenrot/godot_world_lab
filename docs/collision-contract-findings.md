@@ -6,12 +6,13 @@ This records M12 collision findings before any extraction decision.
 
 The lab has a stable collision prototype boundary:
 
-- Collision consumes explicit topology layers from `GeneratedChunkData`.
 - Collision is chunk-owned and unloads with the chunk root.
-- The current backend creates one `StaticBody3D` per chunk and one box
-  `CollisionShape3D` per blocking policy cell.
-- Collision diagnostics report whether a chunk has collision and how many shapes
-  were created, plus solid and liquid policy counts.
+- Collision consumes canonical `GeneratedWorldChunkRecord.topology_layers`
+  plus an explicit movement policy.
+- The current backend creates one `StaticBody3D` per chunk and one
+  `BoxShape3D` shape owner per merged blocking rectangle.
+- Collision diagnostics report blocking cell count, merged shape count,
+  merge ratio, cell counts by reason/layer, and shape counts by reason/layer.
 
 This proves that collision can be derived from formed products without changing
 topology or streaming truth.

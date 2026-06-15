@@ -16,7 +16,15 @@ func _initialize() -> void:
 	var same_a: Array = provider.generate_chunk_logic_grid(coord)
 	var same_b: Array = provider.generate_chunk_logic_grid(coord)
 	var different: Array = provider.generate_chunk_logic_grid(Vector3i(5, 0, -2))
-	var layered_result: Dictionary = provider.generate_chunk_generation_result(coord)
+	var layered_result: Dictionary = GeneratedChunkDataAdapter.generation_result_from_world_chunk(
+		provider._world_generation_session().generate_world_chunk(
+			coord,
+			true,
+			true,
+			{"diagnostics_enabled": true}
+		),
+		true
+	)
 	var settings_hash_a: int = provider.generation_settings_hash()
 
 	_assert(_grid_signature(same_a) == _grid_signature(same_b), "same coordinate is deterministic")

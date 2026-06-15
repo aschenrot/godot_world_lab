@@ -114,25 +114,23 @@ func _topology_layers_from_loaded_neighbor(chunk_coord: Vector3i, expected_cache
 		return {}
 	if not expected_cache_key.is_empty() and loaded_record.get("cache_key", "") != expected_cache_key:
 		return {}
-	var loaded_data: Dictionary = loaded_record.get("generated_chunk_data", {})
-	var topology_layers: Dictionary = loaded_data.get("topology_layers", {})
+	var canonical_record: Dictionary = loaded_record.get("canonical_record", {})
+	var topology_layers: Dictionary = canonical_record.get("topology_layers", {})
 	if topology_layers.is_empty():
 		return {}
 	loaded_neighbor_lookup_count += 1
-	return topology_layers
+	return topology_layers.duplicate(true)
 
 
 func _topology_layers_from_chunk_cache(identity: GeneratedChunkIdentity) -> Dictionary:
 	if not use_chunk_cache or chunk_cache == null or identity == null:
 		return {}
-	if not chunk_cache.has_world_chunk(identity):
+	if not chunk_cache.has_canonical_record(identity):
 		return {}
 	chunk_cache_lookup_count += 1
-	var world_chunk: GeneratedWorldChunk = chunk_cache.load_world_chunk_for_identity(identity)
-	if world_chunk == null:
-		return {}
-	var generation_result: Dictionary = GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk, false)
-	var topology_layers: Dictionary = generation_result.get("topology_layers", {})
+	var topology_layers: Dictionary = chunk_cache.load_topology_layers_for_identity(identity) \
+		if chunk_cache.has_method("load_topology_layers_for_identity") \
+		else {}
 	if not topology_layers.is_empty():
 		return topology_layers
 	return {}
@@ -145,8 +143,7 @@ func _topology_layers_from_fallback(chunk_coord: Vector3i) -> Dictionary:
 	if allow_full_neighbor_generation:
 		full_neighbor_generation_count += 1
 		var world_chunk: GeneratedWorldChunk = session.generate_world_chunk(chunk_coord, false, false)
-		var result: Dictionary = GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk, false)
-		return result.get("topology_layers", {})
+		return world_chunk.to_canonical_record(true).get("topology_layers", {})
 	return session.generate_topology_layers_only(chunk_coord)
 
 

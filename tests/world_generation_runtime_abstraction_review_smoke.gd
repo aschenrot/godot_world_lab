@@ -117,8 +117,8 @@ func _host_adapter_boundaries_are_non_authoritative(
 	var collision_contract: Dictionary = collision_builder.host_adapter_contract()
 	return not bool(visual_contract.get("owns_generation_truth", true)) \
 		and not bool(collision_contract.get("owns_generation_truth", true)) \
-		and _array_has(visual_contract.get("consumes", PackedStringArray()), "GeneratedChunkData.formation_layers") \
-		and _array_has(collision_contract.get("consumes", PackedStringArray()), "GeneratedChunkData.topology_layers.solid")
+		and _array_has(visual_contract.get("consumes", PackedStringArray()), "GeneratedWorldChunkRecord.formation_products") \
+		and _array_has(collision_contract.get("consumes", PackedStringArray()), "GeneratedWorldChunkRecord.topology_layers.solid")
 
 
 func _array_has(values: Variant, target: String) -> bool:

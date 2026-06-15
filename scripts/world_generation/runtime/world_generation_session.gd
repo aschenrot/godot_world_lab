@@ -204,6 +204,36 @@ func generate_native_chunk_payload(chunk_coord: Vector3i) -> Dictionary:
 	return payload_variant
 
 
+func generate_native_chunk_record_payload(
+	chunk_coord: Vector3i,
+	request_flags: Dictionary = {}
+) -> Dictionary:
+	full_generation_call_count += 1
+	var mapper := _native_grid_mapper()
+	if mapper == null:
+		return _native_backend_error("generate_lab_chunk_record_payload")
+	if mapper.has_method("generate_lab_chunk_record_payload"):
+		var payload_variant: Variant = mapper.call(
+			"generate_lab_chunk_record_payload",
+			chunk_coord,
+			_native_settings_dictionary(),
+			request_flags
+		)
+		if typeof(payload_variant) != TYPE_DICTIONARY:
+			return _native_backend_error("generate_lab_chunk_record_payload_not_dictionary")
+		return payload_variant
+	if not mapper.has_method("generate_lab_chunk_payload"):
+		return _native_backend_error("generate_lab_chunk_record_payload")
+	var fallback_payload: Variant = mapper.call(
+		"generate_lab_chunk_payload",
+		chunk_coord,
+		_native_settings_dictionary()
+	)
+	if typeof(fallback_payload) != TYPE_DICTIONARY:
+		return _native_backend_error("generate_lab_chunk_payload_not_dictionary")
+	return fallback_payload
+
+
 func generate_native_topology_layers_payload(chunk_coord: Vector3i) -> Dictionary:
 	var mapper := _native_grid_mapper()
 	if mapper == null or not mapper.has_method("generate_lab_topology_layers_payload"):
@@ -238,12 +268,53 @@ func generate_native_formation_layer(
 	return payload_variant
 
 
+func generate_native_formation_layers(
+	chunk_coord: Vector3i,
+	topology_layers: Dictionary,
+	requested_layer_ids: PackedStringArray
+) -> Dictionary:
+	var mapper := _native_grid_mapper()
+	if mapper != null and mapper.has_method("formation_layers_payload"):
+		var requested_array: Array = []
+		for layer_id in requested_layer_ids:
+			requested_array.append(String(layer_id))
+		var payload_variant: Variant = mapper.call(
+			"formation_layers_payload",
+			chunk_coord,
+			_native_settings_dictionary(),
+			topology_layers,
+			requested_array
+		)
+		if typeof(payload_variant) != TYPE_DICTIONARY:
+			return _native_backend_error("formation_layers_payload_not_dictionary")
+		return payload_variant
+
+	var formation_layers: Dictionary = {}
+	for layer_id in requested_layer_ids:
+		var id := String(layer_id)
+		if not topology_layers.has(id):
+			continue
+		var layer_payload := generate_native_formation_layer(chunk_coord, id, topology_layers[id])
+		if layer_payload.has("formation_grid"):
+			formation_layers[id] = layer_payload
+	return {
+		"product_type": "NativeFormationLayersPayload",
+		"formation_layers": formation_layers,
+		"diagnostics": {
+			"authority": "native_grid_generation",
+			"formation_mode": "owned_halo_native_per_layer_fallback",
+			"layer_count": formation_layers.size(),
+			"neighbor_generation_count": -1,
+		},
+	}
+
+
 func native_generation_available() -> bool:
 	var mapper := _native_grid_mapper()
 	return mapper != null \
-		and mapper.has_method("generate_lab_chunk_payload") \
+		and (mapper.has_method("generate_lab_chunk_record_payload") or mapper.has_method("generate_lab_chunk_payload")) \
 		and mapper.has_method("generate_lab_topology_layers_payload") \
-		and mapper.has_method("formation_layer_payload")
+		and (mapper.has_method("formation_layers_payload") or mapper.has_method("formation_layer_payload"))
 
 
 func formation_sampling_context() -> Dictionary:

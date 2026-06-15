@@ -1,0 +1,24 @@
+[gd_scene format=3 uid="uid://dkrunhacdj0c3"]
+
+[ext_resource type="Script" uid="uid://bv0iyo6ihr8ex" path="res://scenes/playground/player.gd" id="1_af35h"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_af35h"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_af35h"]
+albedo_color = Color(0, 0.55376184, 0.3691923, 1)
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_af35h"]
+
+[node name="Player" type="CharacterBody3D" unique_id=1478946858]
+script = ExtResource("1_af35h")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=531490791]
+transform = Transform3D(1, 0, 0, 0, 0.93969274, 0.34201992, 0, -0.34201992, 0.93969274, 0, 0.48828268, 0)
+current = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=716456789]
+shape = SubResource("CapsuleShape3D_af35h")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=951058738]
+material_override = SubResource("StandardMaterial3D_af35h")
+mesh = SubResource("CapsuleMesh_af35h")

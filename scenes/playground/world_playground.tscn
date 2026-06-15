@@ -1,30 +1,24 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://baue41a0abwsd"]
 
-[ext_resource type="Script" path="res://scripts/world_controller.gd" id="1_world_controller"]
-[ext_resource type="Script" path="res://scripts/player/free_fly_camera.gd" id="2_free_fly_camera"]
+[ext_resource type="Script" uid="uid://ntgk6q1js3bt" path="res://scripts/world_controller.gd" id="1_world_controller"]
+[ext_resource type="PackedScene" uid="uid://dkrunhacdj0c3" path="res://scenes/playground/player.tscn" id="2_26228"]
 
-[node name="WorldPlayground" type="Node3D"]
+[node name="WorldPlayground" type="Node3D" unique_id=184724731]
 
-[node name="WorldController" type="Node3D" parent="."]
+[node name="WorldController" type="Node3D" parent="." unique_id=118897801]
 script = ExtResource("1_world_controller")
-load_radius_chunks = 4
-unload_radius_chunks = 6
 focus_target_path = NodePath("../PlayerRig/Camera3D")
 chunk_root_container_path = NodePath("../ChunkRootContainer")
 
-[node name="PlayerRig" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0, 36, 48)
-script = ExtResource("2_free_fly_camera")
+[node name="PlayerRig" parent="." unique_id=1501931750 instance=ExtResource("2_26228")]
+transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34201998, 0, -0.34201998, 0.939693, 0, 36, 48)
 
-[node name="Camera3D" type="Camera3D" parent="PlayerRig"]
-current = true
+[node name="ChunkRootContainer" type="Node3D" parent="." unique_id=116990757]
 
-[node name="ChunkRootContainer" type="Node3D" parent="."]
-
-[node name="Sun" type="DirectionalLight3D" parent="."]
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=2088294061]
 transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 16, 0)
 light_energy = 2.0
 
-[node name="FillLight" type="OmniLight3D" parent="."]
+[node name="FillLight" type="OmniLight3D" parent="." unique_id=1295037357]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 18, 12)
 light_energy = 0.75

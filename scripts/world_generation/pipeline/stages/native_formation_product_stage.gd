@@ -31,7 +31,10 @@ func can_run(
 ) -> bool:
 	return super.can_run(snapshot, context, working_set) \
 		and session != null \
-		and session.has_method("generate_native_formation_layer")
+		and (
+			session.has_method("generate_native_formation_layers")
+			or session.has_method("generate_native_formation_layer")
+		)
 
 
 func _run(
@@ -55,21 +58,28 @@ func _run(
 		return GenerationStageResult.failed(stage_id, stage_category, "missing_requested_topology_layers_for_formation")
 
 	var formation_start_us := Time.get_ticks_usec()
-	var formation_layers: Dictionary = {}
-	for layer_id in topology_layers.keys():
-		var id := String(layer_id)
-		var layer_payload: Variant = session.call(
-			"generate_native_formation_layer",
+	var requested_layer_ids := _packed_string_array_from_keys(topology_layers)
+	var formation_payload: Dictionary = {}
+	if session.has_method("generate_native_formation_layers"):
+		var payload_variant: Variant = session.call(
+			"generate_native_formation_layers",
 			context.chunk_coord,
-			id,
-			topology_layers[layer_id]
+			topology_layers,
+			requested_layer_ids
 		)
-		if typeof(layer_payload) != TYPE_DICTIONARY:
-			return GenerationStageResult.failed(stage_id, stage_category, "native_formation_layer_not_dictionary:%s" % id)
-		var layer_data: Dictionary = layer_payload
-		if not layer_data.has("formation_grid"):
+		if typeof(payload_variant) != TYPE_DICTIONARY:
+			return GenerationStageResult.failed(stage_id, stage_category, "native_formation_layers_not_dictionary")
+		formation_payload = payload_variant
+	else:
+		formation_payload = _generate_formation_layers_per_layer(context, topology_layers, requested_layer_ids)
+	var formation_layers: Dictionary = formation_payload.get("formation_layers", {})
+	for layer_id in requested_layer_ids:
+		var id := String(layer_id)
+		if not formation_layers.has(id):
 			return GenerationStageResult.failed(stage_id, stage_category, "native_formation_layer_missing_grid:%s" % id)
-		formation_layers[id] = layer_data
+		var layer_data: Variant = formation_layers[id]
+		if typeof(layer_data) != TYPE_DICTIONARY or not layer_data.has("formation_grid"):
+			return GenerationStageResult.failed(stage_id, stage_category, "native_formation_layer_missing_grid:%s" % id)
 	var formation_elapsed_us := Time.get_ticks_usec() - formation_start_us
 
 	var product_start_us := Time.get_ticks_usec()
@@ -95,6 +105,7 @@ func _run(
 		"formation_product_dependencies": snapshot.formation_product_dependencies.duplicate(true),
 		"emitted_formation_product_ids": formation_product_set.get("product_ids", PackedStringArray()),
 		"native_formation_us": formation_elapsed_us,
+		"native_formation_diagnostics": formation_payload.get("diagnostics", {}),
 	})
 
 	var result := GenerationStageResult.success(stage_id, stage_category)
@@ -102,11 +113,50 @@ func _run(
 	result.increment_emitted_count("formation_product_set")
 	result.increment_emitted_count("formation_product", product_ids.size())
 	result.set_diagnostic("native_formation_us", formation_elapsed_us)
+	result.set_diagnostic("native_compute_us", formation_elapsed_us)
 	result.set_diagnostic("formation_product_set_build_us", product_elapsed_us)
+	result.set_diagnostic("native_formation_diagnostics", formation_payload.get("diagnostics", {}))
 	result.set_diagnostic("requested_formation_products", snapshot.requested_formation_products.duplicate())
 	result.set_diagnostic("emitted_formation_product_ids", product_ids.duplicate())
 	result.set_diagnostic("native_backend", "godot_grid")
 	return result
+
+
+func _generate_formation_layers_per_layer(
+	context: GenerationContext,
+	topology_layers: Dictionary,
+	requested_layer_ids: PackedStringArray
+) -> Dictionary:
+	var formation_layers: Dictionary = {}
+	for layer_id in requested_layer_ids:
+		var id := String(layer_id)
+		if not topology_layers.has(id):
+			continue
+		var layer_payload: Variant = session.call(
+			"generate_native_formation_layer",
+			context.chunk_coord,
+			id,
+			topology_layers[id]
+		)
+		if typeof(layer_payload) == TYPE_DICTIONARY:
+			formation_layers[id] = layer_payload
+	return {
+		"product_type": "NativeFormationLayersPayload",
+		"formation_layers": formation_layers,
+		"diagnostics": {
+			"formation_mode": "owned_halo_native_per_layer_fallback",
+			"layer_count": formation_layers.size(),
+			"neighbor_generation_count": -1,
+		},
+	}
+
+
+func _packed_string_array_from_keys(dictionary: Dictionary) -> PackedStringArray:
+	var ids: Array[String] = []
+	for key in dictionary.keys():
+		ids.append(String(key))
+	ids.sort()
+	return PackedStringArray(ids)
 
 
 func _requested_topology_layers_for_formation(

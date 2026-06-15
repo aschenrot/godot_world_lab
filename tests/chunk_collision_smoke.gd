@@ -48,10 +48,10 @@ func _assert_direct_collision_builder() -> void:
 	var provider: Node = Provider.new()
 	var collision_builder: RefCounted = CollisionBuilder.new()
 	var chunk_coord := Vector3i(2, 0, -1)
-	var generated_data: Dictionary = provider.make_generated_chunk_data(chunk_coord)
+	var canonical_record: Dictionary = provider._generate_world_chunk_internal(chunk_coord).to_canonical_record(true)
 	var collision_body: StaticBody3D = collision_builder.build_chunk_collision(
 		chunk_coord,
-		generated_data,
+		canonical_record,
 		32.0,
 		provider.chunk_size_cells,
 		{"liquid_blocks_movement": provider.liquid_blocks_movement}
@@ -64,23 +64,17 @@ func _assert_direct_collision_builder() -> void:
 		int(collision_body.get_meta("collision_shape_count")) == collision_plan["merged_boxes"].size(),
 		"collision shape count matches merged collision boxes"
 	)
+	_assert(
+		int(collision_body.get_meta("collision_shape_owner_count")) == collision_plan["merged_boxes"].size(),
+		"collision shape owner count matches merged collision boxes"
+	)
+	_assert(collision_body.get_child_count() == 0, "runtime collision uses shape owners, not per-shape child nodes")
 	_assert(collision_plan["policy"]["ground_visuals_block_movement"] == false, "ground visuals do not imply blockers")
 	_assert(collision_plan["diagnostics"]["source_has_topology_layers"], "collision consumes topology layers")
-	_assert(_all_children_are_box_shapes(collision_body), "collision children are box shapes")
 	_assert_layer_semantics(collision_builder)
 
 	collision_body.free()
 	provider.free()
-
-
-func _all_children_are_box_shapes(body: StaticBody3D) -> bool:
-	for child in body.get_children():
-		if not child is CollisionShape3D:
-			return false
-		var shape_node := child as CollisionShape3D
-		if not shape_node.shape is BoxShape3D:
-			return false
-	return true
 
 
 func _assert_layer_semantics(collision_builder: RefCounted) -> void:

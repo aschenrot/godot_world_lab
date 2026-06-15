@@ -339,6 +339,13 @@ static func _terrain_cells_from_world_layers(
 	)
 	if not layer_set_terrain_cells.is_empty():
 		return layer_set_terrain_cells
+	var legacy_layer_set_terrain_cells := _terrain_cells_from_layer_set(
+		world_layers.get(SEMANTIC_WORLD_LAYER_SET_KEY, {}),
+		LEGACY_TERRAIN_LAYER_KEY,
+		copy_output
+	)
+	if not legacy_layer_set_terrain_cells.is_empty():
+		return legacy_layer_set_terrain_cells
 
 	var native_terrain_cells: Variant = world_layers.get(NATIVE_TERRAIN_LAYER_KEY, [])
 	if typeof(native_terrain_cells) == TYPE_ARRAY:

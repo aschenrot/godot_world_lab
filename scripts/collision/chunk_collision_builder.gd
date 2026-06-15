@@ -11,9 +11,9 @@ func host_adapter_contract() -> Dictionary:
 		"adapter_id": "chunk_collision_builder",
 		"host_surface": "collision",
 		"consumes": PackedStringArray([
-			"GeneratedChunkData.topology_layers.solid",
-			"GeneratedChunkData.topology_layers.water",
-			"GeneratedChunkData.logic_grid_compatibility_alias",
+			"GeneratedWorldChunkRecord.topology_layers.solid",
+			"GeneratedWorldChunkRecord.topology_layers.water",
+			"GeneratedWorldChunk.topology_projection_set",
 		]),
 		"produces": PackedStringArray([
 			"ChunkCollisionPlan",
@@ -75,6 +75,8 @@ func build_chunk_collision_from_plan(
 	body.set_meta("collision_plan", collision_plan)
 
 	var collision_count := 0
+	var shape_records: Array[Dictionary] = []
+	var debug_shape_nodes := bool(options.get("debug_collision_shape_nodes", false))
 
 	for box in collision_plan.get("merged_boxes", []):
 		var data: Dictionary = box
@@ -85,15 +87,7 @@ func build_chunk_collision_from_plan(
 			float(options.get("collision_height_meters", DEFAULT_COLLISION_HEIGHT_METERS)),
 			float(rect.size.y) * cell_size_meters
 		)
-		var shape_node := CollisionShape3D.new()
-		shape_node.name = "MergedCollision_%s_%s_%s_%s" % [
-			rect.position.x,
-			rect.position.y,
-			rect.size.x,
-			rect.size.y,
-		]
-		shape_node.shape = shape
-		shape_node.transform = data.get(
+		var shape_transform: Transform3D = data.get(
 			"world_space_shape_transform",
 			_rect_collision_transform(
 				rect,
@@ -101,14 +95,32 @@ func build_chunk_collision_from_plan(
 				float(options.get("collision_height_meters", DEFAULT_COLLISION_HEIGHT_METERS))
 			)
 		)
-		shape_node.set_meta("rect", rect)
-		shape_node.set_meta("reason", data.get("reason", ""))
-		shape_node.set_meta("source_layer", data.get("source_layer", ""))
-		shape_node.set_meta("cell_count", int(data.get("cell_count", rect.size.x * rect.size.y)))
-		body.add_child(shape_node)
+		var owner_id := body.create_shape_owner(body)
+		body.shape_owner_set_transform(owner_id, shape_transform)
+		body.shape_owner_add_shape(owner_id, shape)
+		shape_records.append({
+			"shape_owner_id": owner_id,
+			"rect": rect,
+			"reason": data.get("reason", ""),
+			"source_layer": data.get("source_layer", ""),
+			"cell_count": int(data.get("cell_count", rect.size.x * rect.size.y)),
+		})
+		if debug_shape_nodes:
+			var shape_node := CollisionShape3D.new()
+			shape_node.name = "MergedCollision_%s_%s_%s_%s" % [
+				rect.position.x,
+				rect.position.y,
+				rect.size.x,
+				rect.size.y,
+			]
+			shape_node.shape = shape
+			shape_node.transform = shape_transform
+			body.add_child(shape_node)
 		collision_count += 1
 
 	body.set_meta("collision_shape_count", collision_count)
+	body.set_meta("collision_shape_owner_count", collision_count)
+	body.set_meta("collision_shape_records", shape_records)
 	body.set_meta("collision_policy", collision_plan.get("policy", {}))
 	return body
 
@@ -118,8 +130,8 @@ func build_collision_plan(
 	collision_source: Dictionary,
 	options: Dictionary = {}
 ) -> Dictionary:
-	var topology_layers: Dictionary = collision_source.get("topology_layers", {})
-	var solid_grid: Array = topology_layers.get(LAYER_SOLID, collision_source.get("logic_grid", []))
+	var topology_layers: Dictionary = _topology_layers_from_collision_source(collision_source)
+	var solid_grid: Array = topology_layers.get(LAYER_SOLID, [])
 	var water_grid: Array = topology_layers.get(LAYER_WATER, [])
 	var liquid_blocks := bool(options.get("liquid_blocks_movement", true))
 	var cell_size_meters := float(options.get("cell_size_meters", 1.0))
@@ -139,6 +151,7 @@ func build_collision_plan(
 	)
 	var diagnostics: Dictionary = merge_payload.get("diagnostics", {})
 	diagnostics["source_has_topology_layers"] = collision_source.has("topology_layers")
+	diagnostics["source_has_topology_projection_set"] = collision_source.has("topology_projection_set")
 	diagnostics["source_has_logic_grid_alias"] = collision_source.has("logic_grid")
 	diagnostics["uses_logic_grid_compatibility_alias"] = uses_logic_grid_compatibility_alias
 	diagnostics["owns_generation_truth"] = false
@@ -172,6 +185,7 @@ func get_collision_diagnostics(collision_body: StaticBody3D) -> Dictionary:
 		"chunk_coord": collision_body.get_meta("chunk_coord", Vector3i.ZERO),
 		"collision_backend": collision_body.get_meta("collision_backend", ""),
 		"collision_shape_count": int(collision_body.get_meta("collision_shape_count", 0)),
+		"collision_shape_owner_count": int(collision_body.get_meta("collision_shape_owner_count", 0)),
 		"collision_policy": collision_body.get_meta("collision_policy", {}),
 		"collision_plan_diagnostics": collision_plan.get("diagnostics", {}),
 	}
@@ -214,7 +228,7 @@ func _native_collision_merge_payload(
 		"merged_collision_boxes_payload",
 		solid_grid,
 		water_grid,
-		liquid_blocks
+		{"liquid_blocks_movement": liquid_blocks}
 	)
 	return payload if typeof(payload) == TYPE_DICTIONARY else {}
 
@@ -229,12 +243,16 @@ func _local_collision_merge_payload(
 	var merged_boxes: Array[Dictionary] = []
 	var counts_by_reason := {}
 	var counts_by_layer := {}
+	var shape_counts_by_reason := {}
+	var shape_counts_by_layer := {}
 	var blocking_cell_seen := {}
 
 	_append_local_merged_boxes_for_group(
 		merged_boxes,
 		counts_by_reason,
 		counts_by_layer,
+		shape_counts_by_reason,
+		shape_counts_by_layer,
 		blocking_cell_seen,
 		solid_grid,
 		width,
@@ -247,6 +265,8 @@ func _local_collision_merge_payload(
 			merged_boxes,
 			counts_by_reason,
 			counts_by_layer,
+			shape_counts_by_reason,
+			shape_counts_by_layer,
 			blocking_cell_seen,
 			water_grid,
 			width,
@@ -265,6 +285,8 @@ func _local_collision_merge_payload(
 			"merge_ratio": 0.0 if blocking_cell_count == 0 else float(merged_boxes.size()) / float(blocking_cell_count),
 			"counts_by_reason": counts_by_reason,
 			"counts_by_layer": counts_by_layer,
+			"shape_counts_by_reason": shape_counts_by_reason,
+			"shape_counts_by_layer": shape_counts_by_layer,
 		},
 	}
 
@@ -273,6 +295,8 @@ func _append_local_merged_boxes_for_group(
 	merged_boxes: Array,
 	counts_by_reason: Dictionary,
 	counts_by_layer: Dictionary,
+	shape_counts_by_reason: Dictionary,
+	shape_counts_by_layer: Dictionary,
 	blocking_cell_seen: Dictionary,
 	grid: Array,
 	width: int,
@@ -310,6 +334,8 @@ func _append_local_merged_boxes_for_group(
 			var cell_count := rect_width * rect_height
 			_increment_count(counts_by_reason, reason, cell_count)
 			_increment_count(counts_by_layer, source_layer, cell_count)
+			_increment_count(shape_counts_by_reason, reason, 1)
+			_increment_count(shape_counts_by_layer, source_layer, 1)
 			merged_boxes.append({
 				"rect": Rect2i(Vector2i(x, y), Vector2i(rect_width, rect_height)),
 				"reason": reason,
@@ -339,13 +365,39 @@ func _boxes_with_shape_transforms(
 	return enriched
 
 
+func _topology_layers_from_collision_source(collision_source: Dictionary) -> Dictionary:
+	var direct_layers: Dictionary = collision_source.get("topology_layers", {})
+	if not direct_layers.is_empty():
+		return direct_layers
+	var projection_set: Dictionary = collision_source.get("topology_projection_set", {})
+	var projections: Variant = projection_set.get("projections", {})
+	if typeof(projections) == TYPE_DICTIONARY:
+		var topology_layers: Dictionary = {}
+		var projection_dictionary: Dictionary = projections
+		for projection_id in projection_dictionary.keys():
+			var projection_data: Variant = projection_dictionary[projection_id]
+			if typeof(projection_data) != TYPE_DICTIONARY:
+				continue
+			var grid: Variant = projection_data.get("grid", [])
+			if typeof(grid) == TYPE_ARRAY:
+				topology_layers[String(projection_id)] = grid
+		if not topology_layers.is_empty():
+			return topology_layers
+	var legacy_layers: Variant = projection_set.get("topology_layers", {})
+	if typeof(legacy_layers) == TYPE_DICTIONARY:
+		return legacy_layers
+	if collision_source.has("logic_grid"):
+		return {LAYER_SOLID: collision_source.get("logic_grid", [])}
+	return {}
+
+
 func _collision_consumed_fields(collision_source: Dictionary) -> PackedStringArray:
 	var consumed_fields := PackedStringArray()
-	var topology_layers: Dictionary = collision_source.get("topology_layers", {})
+	var topology_layers: Dictionary = _topology_layers_from_collision_source(collision_source)
 	if topology_layers.has(LAYER_SOLID):
-		consumed_fields.append("topology_layers.solid")
+		consumed_fields.append("topology_layers.solid" if collision_source.has("topology_layers") else "topology_projection_set.solid")
 	if topology_layers.has(LAYER_WATER):
-		consumed_fields.append("topology_layers.water")
+		consumed_fields.append("topology_layers.water" if collision_source.has("topology_layers") else "topology_projection_set.water")
 	if consumed_fields.is_empty() and collision_source.has("logic_grid"):
 		consumed_fields.append("logic_grid")
 	return consumed_fields

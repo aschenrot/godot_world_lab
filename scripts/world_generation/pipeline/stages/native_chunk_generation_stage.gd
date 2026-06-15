@@ -36,7 +36,10 @@ func can_run(
 ) -> bool:
 	return super.can_run(snapshot, context, working_set) \
 		and session != null \
-		and session.has_method("generate_native_chunk_payload")
+		and (
+			session.has_method("generate_native_chunk_record_payload")
+			or session.has_method("generate_native_chunk_payload")
+		)
 
 
 func _run(
@@ -48,7 +51,19 @@ func _run(
 		return GenerationStageResult.failed(stage_id, stage_category, "missing_native_generation_session")
 
 	var native_start_us := Time.get_ticks_usec()
-	var payload_variant: Variant = session.call("generate_native_chunk_payload", context.chunk_coord)
+	var request_flags := _native_request_flags(snapshot, context)
+	var payload_variant: Variant = {}
+	if session.has_method("generate_native_chunk_record_payload"):
+		payload_variant = session.call(
+			"generate_native_chunk_record_payload",
+			context.chunk_coord,
+			request_flags
+		)
+	else:
+		payload_variant = session.call(
+			"generate_native_chunk_payload",
+			context.chunk_coord
+		)
 	var native_elapsed_us := Time.get_ticks_usec() - native_start_us
 	if typeof(payload_variant) != TYPE_DICTIONARY:
 		return GenerationStageResult.failed(stage_id, stage_category, "native_chunk_payload_not_dictionary")
@@ -64,20 +79,22 @@ func _run(
 	)
 	var debug_markers: Array = payload.get("debug_markers", [])
 	var diagnostics: Dictionary = payload.get("diagnostics", {})
-	if terrain_cells.is_empty() or topology_layers.is_empty():
+	if topology_layers.is_empty():
 		return GenerationStageResult.failed(stage_id, stage_category, "invalid_native_chunk_payload_shape")
 
 	var context_bounds := _context_bounds(context)
-	working_set.set_store_value(
-		GenerationWorkingSet.STORE_LAYERS,
-		GeneratedWorldChunk.NATIVE_TERRAIN_CELLS_KEY,
-		terrain_cells
-	)
-	working_set.set_store_value(
-		GenerationWorkingSet.STORE_FEATURES,
-		GeneratedWorldChunk.NATIVE_DEBUG_MARKERS_KEY,
-		debug_markers
-	)
+	if not terrain_cells.is_empty():
+		working_set.set_store_value(
+			GenerationWorkingSet.STORE_LAYERS,
+			GeneratedWorldChunk.NATIVE_TERRAIN_CELLS_KEY,
+			terrain_cells
+		)
+	if not debug_markers.is_empty():
+		working_set.set_store_value(
+			GenerationWorkingSet.STORE_FEATURES,
+			GeneratedWorldChunk.NATIVE_DEBUG_MARKERS_KEY,
+			debug_markers
+		)
 
 	var projection_start_us := Time.get_ticks_usec()
 	var topology_projection_set := TopologyProjectionSetScript.from_legacy_topology_layers(
@@ -120,18 +137,36 @@ func _run(
 	working_set.set_diagnostic("native_backend", "godot_grid")
 
 	var result := GenerationStageResult.success(stage_id, stage_category)
-	result.increment_emitted_count("native_terrain_cells")
+	if not terrain_cells.is_empty():
+		result.increment_emitted_count("native_terrain_cells")
 	result.increment_emitted_count("topology_projection_set")
 	result.increment_emitted_count("topology_projection", topology_layers.size())
 	for count_id in optional_counts.keys():
 		result.increment_emitted_count(String(count_id), int(optional_counts[count_id]))
 	result.set_diagnostic("native_generation_us", native_elapsed_us)
+	result.set_diagnostic("native_compute_us", int(diagnostics.get("native_compute_us", native_elapsed_us)))
+	result.set_diagnostic("native_encode_us", int(diagnostics.get("native_encode_us", 0)))
+	result.set_diagnostic("godot_decode_us", int(diagnostics.get("godot_decode_us", 0)))
 	result.set_diagnostic("topology_projection_us", topology_projection_elapsed_us)
 	result.set_diagnostic("optional_report_products_us", optional_elapsed_us)
 	result.set_diagnostic("requested_topology_projections", snapshot.requested_topology_projections.duplicate())
 	result.set_diagnostic("internal_required_topology_projections", snapshot.internal_required_topology_projections.duplicate())
 	result.set_diagnostic("native_backend", "godot_grid")
 	return result
+
+
+func _native_request_flags(snapshot: WorldDefinitionSnapshot, context: GenerationContext) -> Dictionary:
+	var topology_layer_ids: Array = []
+	if snapshot != null:
+		for layer_id in snapshot.internal_required_topology_projections:
+			topology_layer_ids.append(String(layer_id))
+	var include_report_payloads := context != null and context.wants_report_products()
+	return {
+		"include_terrain_cells": include_report_payloads,
+		"include_debug_markers": include_report_payloads,
+		"include_diagnostics": include_report_payloads,
+		"topology_layer_ids": topology_layer_ids,
+	}
 
 
 func _emit_optional_report_products(

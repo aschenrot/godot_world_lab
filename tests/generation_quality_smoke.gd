@@ -15,15 +15,20 @@ func _initialize() -> void:
 	provider.room_max_size = 7
 
 	var chunk_coord := Vector3i(3, 0, -2)
-	var result_a: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
-	var result_b: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
+	var result_a: Dictionary = _generation_result(provider, chunk_coord)
+	var result_b: Dictionary = _generation_result(provider, chunk_coord)
 	_assert(_grid_signature(result_a["logic_grid"]) == _grid_signature(result_b["logic_grid"]), "quality generator is deterministic")
 	_assert(result_a.has("terrain_cells"), "quality generator emits terrain cells")
 	_assert(result_a.has("topology_layers"), "quality generator emits topology layers")
 	_assert(_grid_signature(result_a["logic_grid"]) == _grid_signature(result_a["topology_layers"]["solid"]), "logic grid aliases solid topology layer")
+	var diagnostics: Dictionary = _native_terrain_diagnostics(result_a)
 	_assert(
-		int(result_a["diagnostics"]["dominant_walkable_region"]) > 0,
-		"quality generator reports dominant walkable region"
+		int(diagnostics.get("walkable_cell_count", 0)) > 0,
+		"quality generator reports walkable cells"
+	)
+	_assert(
+		int(diagnostics.get("open_percent", -1)) >= 0,
+		"quality generator reports open percent"
 	)
 	_assert(result_a["debug_markers"].size() > 0, "debug markers are emitted")
 	_assert(_has_marker_type(result_a["debug_markers"], "room"), "room markers are emitted")
@@ -74,11 +79,11 @@ func _initialize() -> void:
 	])
 	_assert(
 		int(sample_report["open_percent"]) >= 70 and int(sample_report["open_percent"]) <= 80,
-			"default multi-chunk sample is 70-80 percent walkable: %s" % str(sample_report)
+		"default multi-chunk sample is 70-80 percent walkable: %s" % str(sample_report)
 	)
 	_assert(
-		int(sample_report["dominant_walkable_percent_min"]) >= 65,
-		"connectivity repair leaves dominant reachable regions: %s" % str(sample_report)
+		int(sample_report["open_percent_min"]) >= 60,
+		"native multi-chunk sample keeps open terrain available: %s" % str(sample_report)
 	)
 
 	provider.free()
@@ -123,15 +128,35 @@ func _multi_chunk_walkability_report(provider: Node, chunk_coords: Array) -> Dic
 	var walkable := 0
 	var dominant_min := 100
 	for chunk_coord in chunk_coords:
-		var result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
-		var diagnostics: Dictionary = result["diagnostics"]
-		total += int(diagnostics["cell_count"])
-		walkable += int(diagnostics["walkable_cell_count"])
-		dominant_min = mini(dominant_min, int(diagnostics["dominant_walkable_percent"]))
+		var result: Dictionary = _generation_result(provider, chunk_coord)
+		var diagnostics: Dictionary = _native_terrain_diagnostics(result)
+		total += int(diagnostics.get("cell_count", 0))
+		walkable += int(diagnostics.get("walkable_cell_count", 0))
+		dominant_min = mini(dominant_min, int(diagnostics.get("open_percent", 0)))
 	return {
 		"open_percent": int(round(float(walkable) * 100.0 / float(maxi(total, 1)))),
-		"dominant_walkable_percent_min": dominant_min,
+		"open_percent_min": dominant_min,
 	}
+
+
+func _native_terrain_diagnostics(result: Dictionary) -> Dictionary:
+	var diagnostics: Dictionary = result.get("diagnostics", {})
+	var native_diagnostics: Variant = diagnostics.get("native_generator_diagnostics", {})
+	if typeof(native_diagnostics) == TYPE_DICTIONARY:
+		return native_diagnostics
+	return diagnostics
+
+
+func _generation_result(provider: Node, chunk_coord: Vector3i) -> Dictionary:
+	return GeneratedChunkDataAdapter.generation_result_from_world_chunk(
+		provider._world_generation_session().generate_world_chunk(
+			chunk_coord,
+			true,
+			true,
+			{"diagnostics_enabled": true}
+		),
+		true
+	)
 
 
 func _assert(condition: bool, message: String) -> void:

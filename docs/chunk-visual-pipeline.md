@@ -3,9 +3,9 @@
 ```text
 chunk coordinate
   -> host-owned generation policy
-  -> GeneratedChunkData with terrain cells and topology layers
-  -> owned-halo formation per topology layer
-  -> godot_grid descriptor conversion per binary layer
+  -> canonical GeneratedWorldChunkRecord
+  -> formation products and topology projection set
+  -> godot_grid native visual bucket planning
   -> layer-aware VisualTileData values
   -> TileMeshCatalog lookup
   -> ChunkVisualBuilder
@@ -24,10 +24,18 @@ classification.
 build_visual_plan(chunk_coord, logic_grid)
 ```
 
-`build_visual_plan_from_generated_chunk(generated_chunk_data, catalog)` is the
-runtime path. It calls `GodotGridTopologyMapper.visual_tiles_for_logic_grid()`
-from `godot_grid` once per topology layer, crops owned-halo formation to owned
-world visual corners, skips empty visual tiles, and returns:
+`build_visual_plan_from_canonical_source(canonical_source, catalog)` is the
+runtime path. It consumes a `GeneratedWorldChunkRecord` or `GeneratedWorldChunk`
+and calls `GodotGridTopologyMapper.visual_bucket_plan_payload()` when the native
+addon is available. The native plan emits layer-aware, bucket-ready visual tile
+data from formation products. Godot applies catalog transform corrections and
+realizes the plan.
+
+`build_visual_plan_from_generated_chunk(generated_chunk_data, catalog)` remains
+an explicit adapter/compatibility path for previews and older tests; it is not
+the provider/controller runtime path.
+
+The visual plan returns:
 
 ```text
 chunk_coord
@@ -83,6 +91,10 @@ The main scene builds a visual chunk root when `chunk_resident` fires and
 removes that root on `chunk_unloaded`. MultiMesh buckets are grouped by visual
 layer, base mesh key, and material variant so ground, water/depth, and
 solid/minable visuals do not overwrite each other at the same local corner.
+Chunk roots store a `visual_bucket_members` index from bucket key to tile
+storage keys. Dirty-cell updates maintain that index and rebuild only affected
+buckets, reusing existing `MultiMeshInstance3D` nodes when the bucket still has
+instances.
 
 ## Runtime Budgets
 
@@ -93,8 +105,9 @@ runtime diagnostics. The current budget contract is:
 visual backend: MultiMesh
 root lifecycle: chunk-resident roots with bounded pooling
 dirty update scope: one logic cell -> at most four visual corners
+dirty realization scope: affected MultiMesh buckets from visual_bucket_members
 full visual rebuild scope: chunk residency/backend rebuilds
-collision backend: one box CollisionShape3D per merged blocking rectangle
+collision backend: one shape owner per merged blocking rectangle
 ```
 
 The budget is a runtime realization contract only. It does not change generated

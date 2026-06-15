@@ -19,25 +19,36 @@ var legacy_eviction_count: int = 0
 
 
 func has_identity(identity: GeneratedChunkIdentity) -> bool:
-	return has_world_chunk(identity)
+	return has_canonical_record(identity)
 
 
 func has_world_chunk(identity: GeneratedChunkIdentity) -> bool:
+	return has_canonical_record(identity)
+
+
+func has_canonical_record(identity: GeneratedChunkIdentity) -> bool:
 	return _can_use_identity(identity) and identity_records.has(_identity_cache_key(identity))
 
 
-func load_world_chunk_for_identity(identity: GeneratedChunkIdentity) -> GeneratedWorldChunk:
+func load_canonical_record_for_identity(identity: GeneratedChunkIdentity) -> Dictionary:
 	if not _can_use_identity(identity):
 		canonical_miss_count += 1
-		return null
+		return {}
 	var cache_key: String = _identity_cache_key(identity)
 	var record: Dictionary = identity_records.get(cache_key, {})
-	if record.is_empty() or not record.has("world_chunk"):
+	if record.is_empty() or not record.has("canonical_record"):
 		canonical_miss_count += 1
-		return null
+		return {}
 	_touch_identity_record(cache_key)
 	canonical_hit_count += 1
-	return record["world_chunk"]
+	return record["canonical_record"].duplicate(true)
+
+
+func load_world_chunk_for_identity(identity: GeneratedChunkIdentity) -> GeneratedWorldChunk:
+	var canonical_record := load_canonical_record_for_identity(identity)
+	if canonical_record.is_empty():
+		return null
+	return GeneratedWorldChunk.from_canonical_record(canonical_record, true)
 
 
 func store_world_chunk_for_identity(
@@ -46,8 +57,19 @@ func store_world_chunk_for_identity(
 ) -> void:
 	if not _can_use_identity(identity) or world_chunk == null:
 		return
+	store_canonical_record_for_identity(identity, world_chunk.to_canonical_record(true))
+
+
+func store_canonical_record_for_identity(
+	identity: GeneratedChunkIdentity,
+	canonical_record: Dictionary
+) -> void:
+	if not _can_use_identity(identity) or canonical_record.is_empty():
+		return
 	var cache_key: RefCounted = GeneratedChunkCacheKeyScript.from_identity(identity)
 	var cache_key_string: String = cache_key.cache_key()
+	var stored_record := canonical_record.duplicate(true)
+	var record_diagnostics: Dictionary = stored_record.get("record_diagnostics", {})
 	identity_records[cache_key_string] = {
 		"cache_key": cache_key.to_dictionary(),
 		"identity": identity.to_dictionary(),
@@ -57,13 +79,27 @@ func store_world_chunk_for_identity(
 		"world_definition_hash": identity.world_definition_hash,
 		"generation_settings_hash": identity.generation_settings_hash,
 		"requested_product_set": identity.requested_product_set.duplicate(),
-		"world_chunk": world_chunk,
-		"truth_signature_hash": world_chunk.generated_truth_signature_hash(),
-		"topology_projection_count": world_chunk.topology_projections.size(),
-		"formation_product_count": _formation_product_count(world_chunk.formation_products),
+		"canonical_record": stored_record,
+		"truth_signature_hash": int(stored_record.get("truth_signature_hash", 0)),
+		"topology_projection_count": int(record_diagnostics.get("topology_projection_count", 0)),
+		"formation_product_count": int(record_diagnostics.get("formation_product_count", 0)),
 	}
 	_touch_identity_record(cache_key_string)
 	_evict_identity_over_limit()
+
+
+func load_topology_layers_for_identity(identity: GeneratedChunkIdentity) -> Dictionary:
+	var canonical_record := load_canonical_record_for_identity(identity)
+	if canonical_record.is_empty():
+		return {}
+	return canonical_record.get("topology_layers", {}).duplicate(true)
+
+
+func load_formation_products_for_identity(identity: GeneratedChunkIdentity) -> Dictionary:
+	var canonical_record := load_canonical_record_for_identity(identity)
+	if canonical_record.is_empty():
+		return {}
+	return canonical_record.get("formation_products", {}).duplicate(true)
 
 
 func load_generation_result_for_identity(identity: GeneratedChunkIdentity) -> Dictionary:

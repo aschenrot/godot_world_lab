@@ -17,12 +17,20 @@ func _initialize() -> void:
 	var builder: RefCounted = Builder.new()
 	var catalog: RefCounted = Catalog.new()
 	var chunk_coord := Vector3i(2, 0, -4)
-	var generation_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
+	var generation_result: Dictionary = GeneratedChunkDataAdapter.generation_result_from_world_chunk(
+		provider._world_generation_session().generate_world_chunk(
+			chunk_coord,
+			true,
+			true,
+			{"diagnostics_enabled": true}
+		),
+		true
+	)
 	var logic_grid: Array = generation_result["logic_grid"]
 
 	var generated_data: Dictionary = provider.make_generated_chunk_data(chunk_coord, logic_grid, generation_result)
 	_assert(generated_data["product_type"] == "GeneratedChunkData", "generated product is typed")
-	_assert(generated_data["authority"] == "local_lab_only", "generated product is lab-local authority")
+	_assert(generated_data["authority"] == "godot_grid_native", "generated product is native adapter authority")
 	_assert(generated_data["chunk_coord"] == chunk_coord, "generated product keeps chunk coord")
 	_assert(generated_data["generator_version"] == provider.generator_version, "generated product keeps generator version")
 	_assert(generated_data.has("generation_settings_hash"), "generated product has settings hash")

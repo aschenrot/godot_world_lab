@@ -5,8 +5,11 @@
 		"processor_count": 8
 	},
 	"phase_order": [
-		"canonical_uncached_generated_world_chunk",
-		"adapter_generated_chunk_data_output",
+		"canonical_runtime_uncached",
+		"canonical_report_uncached",
+		"truth_signature_hash",
+		"report_signature_hash",
+		"adapter_output_explicit",
 		"streaming_load_cache_miss",
 		"streaming_load_cache_hit",
 		"halo_topology_only_sampling",
@@ -15,27 +18,36 @@
 		"collision_realization"
 	],
 	"phases": {
-		"adapter_generated_chunk_data_output": {
-			"avg_us": 16460.75,
+		"adapter_output_explicit": {
+			"attributed_us": 987119,
+			"avg_us": 15423.734375,
 			"counters": {
 				"adapter_output_count": 64,
 				"formation_product_sets_present": 64
 			},
-			"max_us": 17039,
-			"median_us": 16462,
-			"min_us": 16075,
-			"p95_us": 16729,
+			"max_us": 19028,
+			"median_us": 15336,
+			"min_us": 14014,
+			"p95_us": 17400,
 			"sample_count": 64,
 			"subphases": {
 				"adapter_conversion": {
-					"avg_us": 16460.75,
-					"total_us": 1053488
+					"avg_us": 15423.734375,
+					"total_us": 987119
 				},
-				"cache_decode": {
+				"cache_lookup": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"cache_lookup": {
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -43,7 +55,11 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"collision_plan": {
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -51,7 +67,19 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"native_generation": {
+				"formation_product_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_encode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -59,38 +87,66 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_call_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"topology_projection": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_build": {
+				"truth_hash": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_plan": {
+				"visual_bucket_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
 					"avg_us": 0.0,
 					"total_us": 0
 				}
 			},
-			"total_us": 1053488
+			"total_us": 987119,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
 		},
-		"canonical_uncached_generated_world_chunk": {
-			"avg_us": 164962.1875,
+		"canonical_report_uncached": {
+			"attributed_us": 11875956,
+			"avg_us": 185561.8125,
 			"counters": {
 				"full_generation_calls": 72,
+				"report_mode": true,
 				"validation_issue_count": 0
 			},
-			"max_us": 232348,
-			"median_us": 163283,
-			"min_us": 160281,
-			"p95_us": 169127,
+			"max_us": 468451,
+			"median_us": 177156,
+			"min_us": 161144,
+			"p95_us": 192642,
 			"sample_count": 64,
 			"subphases": {
 				"adapter_conversion": {
-					"avg_us": 0.0,
-					"total_us": 0
-				},
-				"cache_decode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -98,59 +154,229 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"collision_build": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"collision_plan": {
+				"collision_native_plan": {
 					"avg_us": 0.0,
 					"total_us": 0
+				},
+				"dictionary_copy": {
+					"avg_us": 6.046875,
+					"total_us": 387
 				},
 				"formation": {
-					"avg_us": 3405.0625,
-					"total_us": 217924
+					"avg_us": 1877.71875,
+					"total_us": 120174
 				},
-				"native_generation": {
-					"avg_us": 1881.03125,
-					"total_us": 120386
+				"formation_product_conversion": {
+					"avg_us": 6192.671875,
+					"total_us": 396331
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 2063.625,
+					"total_us": 132072
+				},
+				"native_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
 				},
 				"pipeline_validation": {
-					"avg_us": 43.40625,
-					"total_us": 2778
+					"avg_us": 53.390625,
+					"total_us": 3417
+				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 50816.078125,
+					"total_us": 3252229
+				},
+				"runtime_call_overhead": {
+					"avg_us": 119011.984375,
+					"total_us": 7616767
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 238.875,
+					"total_us": 15288
 				},
 				"topology_projection": {
-					"avg_us": 4631.6875,
-					"total_us": 296428
+					"avg_us": 5050.8125,
+					"total_us": 323252
 				},
-				"visual_build": {
+				"truth_hash": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_plan": {
+				"visual_bucket_build": {
 					"avg_us": 0.0,
 					"total_us": 0
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
+					"avg_us": 250.609375,
+					"total_us": 16039
 				}
 			},
-			"total_us": 10557580
+			"total_us": 11875956,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
+		},
+		"canonical_runtime_uncached": {
+			"attributed_us": 1033231,
+			"avg_us": 16144.234375,
+			"counters": {
+				"full_generation_calls": 72,
+				"report_mode": false,
+				"validation_issue_count": 0
+			},
+			"max_us": 49270,
+			"median_us": 15234,
+			"min_us": 14432,
+			"p95_us": 17407,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
+					"avg_us": 11.453125,
+					"total_us": 733
+				},
+				"formation": {
+					"avg_us": 2123.875,
+					"total_us": 135928
+				},
+				"formation_product_conversion": {
+					"avg_us": 6695.65625,
+					"total_us": 428522
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 721.890625,
+					"total_us": 46201
+				},
+				"native_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 54.5,
+					"total_us": 3488
+				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 9.28125,
+					"total_us": 594
+				},
+				"runtime_call_overhead": {
+					"avg_us": 511.484375,
+					"total_us": 32735
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 220.671875,
+					"total_us": 14123
+				},
+				"topology_projection": {
+					"avg_us": 5573.828125,
+					"total_us": 356725
+				},
+				"truth_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_bucket_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
+					"avg_us": 221.59375,
+					"total_us": 14182
+				}
+			},
+			"total_us": 1033231,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
 		},
 		"collision_realization": {
-			"avg_us": 351.34375,
+			"attributed_us": 27693,
+			"avg_us": 432.859375,
 			"counters": {
 				"blocking_cell_count": 4602,
 				"merge_ratio": 0.303780964797914,
 				"merged_shape_count": 1398
 			},
-			"max_us": 536,
-			"median_us": 349,
-			"min_us": 241,
-			"p95_us": 468,
+			"max_us": 1818,
+			"median_us": 384,
+			"min_us": 244,
+			"p95_us": 758,
 			"sample_count": 64,
 			"subphases": {
 				"adapter_conversion": {
-					"avg_us": 0.0,
-					"total_us": 0
-				},
-				"cache_decode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -158,19 +384,47 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"collision_build": {
-					"avg_us": 104.015625,
-					"total_us": 6657
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
 				},
-				"collision_plan": {
-					"avg_us": 247.25,
-					"total_us": 15824
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 62.875,
+					"total_us": 4024
+				},
+				"collision_native_plan": {
+					"avg_us": 369.828125,
+					"total_us": 23669
+				},
+				"dictionary_copy": {
+					"avg_us": 0.0,
+					"total_us": 0
 				},
 				"formation": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"native_generation": {
+				"formation_product_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_encode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -178,38 +432,65 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_call_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"topology_projection": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_build": {
+				"truth_hash": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_plan": {
+				"visual_bucket_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
 					"avg_us": 0.0,
 					"total_us": 0
 				}
 			},
-			"total_us": 22486
+			"total_us": 27703,
+			"unattributed_ratio": 0.000360971735913078,
+			"unattributed_us": 10
 		},
 		"dirty_cell_visual_update": {
-			"avg_us": 805.015625,
+			"attributed_us": 26039,
+			"avg_us": 406.859375,
 			"counters": {
 				"dirty_corner_count": 256,
 				"rebuilt_bucket_count": 75
 			},
-			"max_us": 939,
-			"median_us": 801,
-			"min_us": 701,
-			"p95_us": 894,
+			"max_us": 1997,
+			"median_us": 307,
+			"min_us": 286,
+			"p95_us": 886,
 			"sample_count": 64,
 			"subphases": {
 				"adapter_conversion": {
-					"avg_us": 0.0,
-					"total_us": 0
-				},
-				"cache_decode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -217,11 +498,27 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"collision_build": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"collision_plan": {
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -229,7 +526,19 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"native_generation": {
+				"formation_product_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_encode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -237,40 +546,67 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_call_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"topology_projection": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_build": {
-					"avg_us": 805.015625,
-					"total_us": 51521
+				"truth_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
 				},
-				"visual_plan": {
+				"visual_bucket_build": {
+					"avg_us": 406.859375,
+					"total_us": 26039
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
 					"avg_us": 0.0,
 					"total_us": 0
 				}
 			},
-			"total_us": 51521
+			"total_us": 26039,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
 		},
 		"halo_topology_only_sampling": {
-			"avg_us": 538.4375,
+			"attributed_us": 39475,
+			"avg_us": 616.796875,
 			"counters": {
 				"full_neighbor_generations": 0,
 				"sample_cache_entries": 64,
 				"sample_cache_hits": 0,
 				"topology_only_fallbacks": 72
 			},
-			"max_us": 649,
-			"median_us": 533,
-			"min_us": 500,
-			"p95_us": 611,
+			"max_us": 1400,
+			"median_us": 556,
+			"min_us": 513,
+			"p95_us": 1008,
 			"sample_count": 64,
 			"subphases": {
 				"adapter_conversion": {
-					"avg_us": 0.0,
-					"total_us": 0
-				},
-				"cache_decode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -278,11 +614,27 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"collision_build": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"collision_plan": {
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -290,7 +642,19 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"native_generation": {
+				"formation_product_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 616.796875,
+					"total_us": 39475
+				},
+				"native_encode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -298,23 +662,168 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_call_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"topology_projection": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_build": {
+				"truth_hash": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_plan": {
+				"visual_bucket_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
 					"avg_us": 0.0,
 					"total_us": 0
 				}
 			},
-			"total_us": 34460
+			"total_us": 39475,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
+		},
+		"report_signature_hash": {
+			"attributed_us": 415008,
+			"avg_us": 6484.5,
+			"counters": {
+				"hash_accumulator": 1752186948,
+				"hash_kind": "report"
+			},
+			"max_us": 8337,
+			"median_us": 6463,
+			"min_us": 5795,
+			"p95_us": 7548,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"formation_product_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_hash": {
+					"avg_us": 6484.5,
+					"total_us": 415008
+				},
+				"report_product_emit": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_call_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"topology_projection": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"truth_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_bucket_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
+					"avg_us": 0.0,
+					"total_us": 0
+				}
+			},
+			"total_us": 415008,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
 		},
 		"streaming_load_cache_hit": {
-			"avg_us": 94.046875,
+			"attributed_us": 10796,
+			"avg_us": 168.6875,
 			"counters": {
 				"cache_diagnostics": {
 					"canonical_eviction_count": 0,
@@ -333,31 +842,43 @@
 				"cache_entries": 72,
 				"cache_hits": 64,
 				"cache_misses": 72,
-				"hit_adapter_conversion_count": 64
+				"hit_adapter_conversion_count": 0
 			},
-			"max_us": 166,
-			"median_us": 92,
-			"min_us": 82,
-			"p95_us": 105,
+			"max_us": 547,
+			"median_us": 151,
+			"min_us": 122,
+			"p95_us": 286,
 			"sample_count": 64,
 			"subphases": {
 				"adapter_conversion": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"cache_decode": {
-					"avg_us": 13.59375,
-					"total_us": 870
-				},
 				"cache_lookup": {
-					"avg_us": 13.46875,
-					"total_us": 862
+					"avg_us": 16.0,
+					"total_us": 1024
+				},
+				"cache_record_decode": {
+					"avg_us": 99.171875,
+					"total_us": 6347
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
 				},
 				"collision_build": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"collision_plan": {
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -365,7 +886,19 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"native_generation": {
+				"formation_product_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_encode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -373,23 +906,54 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_call_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_load_overhead": {
+					"avg_us": 53.515625,
+					"total_us": 3425
+				},
+				"stage_report_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"topology_projection": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_build": {
+				"truth_hash": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_plan": {
+				"visual_bucket_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
 					"avg_us": 0.0,
 					"total_us": 0
 				}
 			},
-			"total_us": 6019
+			"total_us": 10796,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
 		},
 		"streaming_load_cache_miss": {
-			"avg_us": 29304.640625,
+			"attributed_us": 1315719,
+			"avg_us": 20558.109375,
 			"counters": {
 				"cache_diagnostics": {
 					"canonical_eviction_count": 0,
@@ -410,29 +974,155 @@
 				"cache_misses": 72,
 				"hit_adapter_conversion_count": 0
 			},
-			"max_us": 32112,
-			"median_us": 29221,
-			"min_us": 28876,
-			"p95_us": 29660,
+			"max_us": 23464,
+			"median_us": 20344,
+			"min_us": 18333,
+			"p95_us": 22439,
 			"sample_count": 64,
 			"subphases": {
 				"adapter_conversion": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"cache_decode": {
+				"cache_lookup": {
+					"avg_us": 24.453125,
+					"total_us": 1565
+				},
+				"cache_record_decode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"cache_lookup": {
-					"avg_us": 17.28125,
-					"total_us": 1106
+				"cache_store": {
+					"avg_us": 198.515625,
+					"total_us": 12705
+				},
+				"canonical_record_encode": {
+					"avg_us": 5012.71875,
+					"total_us": 320814
 				},
 				"collision_build": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"collision_plan": {
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
+					"avg_us": 5.6875,
+					"total_us": 364
+				},
+				"formation": {
+					"avg_us": 1922.59375,
+					"total_us": 123046
+				},
+				"formation_product_conversion": {
+					"avg_us": 6517.734375,
+					"total_us": 417135
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 752.578125,
+					"total_us": 48165
+				},
+				"native_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"pipeline_validation": {
+					"avg_us": 56.90625,
+					"total_us": 3642
+				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 7.546875,
+					"total_us": 483
+				},
+				"runtime_call_overhead": {
+					"avg_us": 139.5,
+					"total_us": 8928
+				},
+				"runtime_load_overhead": {
+					"avg_us": 423.171875,
+					"total_us": 27083
+				},
+				"stage_report_build": {
+					"avg_us": 0.25,
+					"total_us": 16
+				},
+				"topology_projection": {
+					"avg_us": 5257.4375,
+					"total_us": 336476
+				},
+				"truth_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_bucket_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
+					"avg_us": 239.015625,
+					"total_us": 15297
+				}
+			},
+			"total_us": 1315719,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
+		},
+		"truth_signature_hash": {
+			"attributed_us": 321032,
+			"avg_us": 5016.125,
+			"counters": {
+				"hash_accumulator": 467621896,
+				"hash_kind": "truth"
+			},
+			"max_us": 6783,
+			"median_us": 4975,
+			"min_us": 4271,
+			"p95_us": 6359,
+			"sample_count": 64,
+			"subphases": {
+				"adapter_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_lookup": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -440,7 +1130,19 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"native_generation": {
+				"formation_product_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_encode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -448,40 +1150,67 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_call_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"topology_projection": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_build": {
+				"truth_hash": {
+					"avg_us": 5016.125,
+					"total_us": 321032
+				},
+				"visual_bucket_build": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_plan": {
+				"visual_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"working_set_finalization": {
 					"avg_us": 0.0,
 					"total_us": 0
 				}
 			},
-			"total_us": 1875497
+			"total_us": 321032,
+			"unattributed_ratio": 0.0,
+			"unattributed_us": 0
 		},
 		"visual_realization": {
-			"avg_us": 16787.109375,
+			"attributed_us": 1750120,
+			"avg_us": 27346.265625,
 			"counters": {
 				"bucket_count": 794,
 				"child_node_count": 794,
 				"instance_count": 22741,
-				"skipped_empty_tile_count": 0
+				"skipped_empty_tile_count": 26411
 			},
-			"max_us": 17638,
-			"median_us": 16798,
-			"min_us": 16171,
-			"p95_us": 17370,
+			"max_us": 40845,
+			"median_us": 26535,
+			"min_us": 22980,
+			"p95_us": 35042,
 			"sample_count": 64,
 			"subphases": {
 				"adapter_conversion": {
-					"avg_us": 0.0,
-					"total_us": 0
-				},
-				"cache_decode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -489,11 +1218,27 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"cache_record_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"cache_store": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"canonical_record_encode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"collision_build": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"collision_plan": {
+				"collision_native_plan": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"dictionary_copy": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -501,7 +1246,19 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"native_generation": {
+				"formation_product_conversion": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"godot_decode": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_compute": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"native_encode": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
@@ -509,20 +1266,50 @@
 					"avg_us": 0.0,
 					"total_us": 0
 				},
+				"report_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"report_product_emit": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_call_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"runtime_load_overhead": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
+				"stage_report_build": {
+					"avg_us": 0.0,
+					"total_us": 0
+				},
 				"topology_projection": {
 					"avg_us": 0.0,
 					"total_us": 0
 				},
-				"visual_build": {
-					"avg_us": 1586.96875,
-					"total_us": 101566
+				"truth_hash": {
+					"avg_us": 0.0,
+					"total_us": 0
 				},
-				"visual_plan": {
-					"avg_us": 15199.96875,
-					"total_us": 972798
+				"visual_bucket_build": {
+					"avg_us": 2057.546875,
+					"total_us": 131683
+				},
+				"visual_native_plan": {
+					"avg_us": 25288.078125,
+					"total_us": 1618437
+				},
+				"working_set_finalization": {
+					"avg_us": 0.0,
+					"total_us": 0
 				}
 			},
-			"total_us": 1074375
+			"total_us": 1750161,
+			"unattributed_ratio": 0.0000234264161982812,
+			"unattributed_us": 41
 		}
 	},
 	"product_type": "WorldGenerationBenchmarkReport",

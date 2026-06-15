@@ -28,12 +28,24 @@ from `_process()`. Request ids remain host-owned until completion.
 
 ## Memory Cache
 
-`scripts/chunk_cache.gd` keeps generated chunk identity records separate from
+`scripts/chunk_cache.gd` keeps canonical generated chunk records separate from
 legacy compatibility records. Identity records are keyed by the canonical
 generation identity, including chunk coordinate, generator version, settings
 hash, world definition hash, requested topology projections, and requested
-formation products. Legacy records remain available for compatibility APIs, but
-legacy-key traffic cannot evict canonical identity records.
+formation products. Cache hits return duplicated `GeneratedWorldChunkRecord`
+dictionaries containing identity, topology layers, the topology projection set,
+formation products, product signatures, and record diagnostics. They do not
+return live `GeneratedWorldChunk` object references.
+
+Runtime chunk loads store the canonical record in `loaded_chunks`. Visual and
+collision builders consume that record directly. `GeneratedChunkData` is
+adapter-only for explicit preview/export/compatibility calls such as
+`get_loaded_chunk_data()` and `make_generated_chunk_data()`; provider load,
+cache-hit, visual, collision, and halo-sampling paths do not use it as
+generation authority.
+
+Legacy records remain available for compatibility APIs, but legacy-key traffic
+cannot evict canonical identity records.
 
 Legacy records store:
 
@@ -54,6 +66,7 @@ ChunkRoot instances
 MultiMesh instances
 materials
 renderer resources
+GeneratedChunkData adapter dictionaries for runtime loads
 ```
 
 Changing `generator_version` changes the cache key and forces regeneration.

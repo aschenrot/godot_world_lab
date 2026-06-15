@@ -20,7 +20,7 @@ func _initialize() -> void:
 	test_adapter_prefers_semantic_world_layer_set_without_legacy_result()
 	test_adapter_reconstructs_terrain_cells_from_semantic_layer_without_legacy_result()
 	test_adapter_falls_back_to_raw_legacy_terrain_layer_without_semantic_layer()
-	test_existing_migration_gate_smoke_still_passes()
+	test_legacy_runtime_wrappers_report_migration_errors()
 	quit(1 if failed else 0)
 
 
@@ -164,23 +164,26 @@ func test_world_layer_set_get_layer_returns_mutation_safe_copy() -> void:
 func test_generated_world_chunk_can_carry_semantic_layer_without_breaking_compatibility() -> void:
 	var provider: Node = _configured_provider()
 	var chunk_coord := Vector3i(1, 0, -1)
-	var working_set := _run_pipeline_for_provider(provider, chunk_coord)
-	var world_chunk := GeneratedWorldChunk.from_working_set(working_set)
+	var world_chunk: GeneratedWorldChunk = provider._world_generation_session().generate_world_chunk(
+		chunk_coord,
+		true,
+		true,
+		{"diagnostics_enabled": true}
+	)
 	var compatibility_result := GeneratedChunkDataAdapter.generation_result_from_world_chunk(world_chunk)
 	var semantic_layer: Dictionary = world_chunk.world_layers.get(
-		LegacyChunkGenerationStage.SEMANTIC_LEGACY_TERRAIN_LAYER_KEY,
+		NativeChunkGenerationStage.SEMANTIC_NATIVE_TERRAIN_LAYER_KEY,
 		{}
 	)
 
-	_assert(not world_chunk.legacy_generation_result.is_empty(), "GeneratedWorldChunk keeps legacy result")
-	_assert(not world_chunk.legacy_generation_result.has("logic_grid"), "GeneratedWorldChunk keeps logic_grid out of legacy result")
-	_assert(world_chunk.world_layers.has("legacy_terrain_cells"), "GeneratedWorldChunk keeps raw legacy terrain layer")
-	_assert(not semantic_layer.is_empty(), "GeneratedWorldChunk carries semantic legacy terrain layer")
+	_assert(world_chunk.legacy_generation_result.is_empty(), "GeneratedWorldChunk omits legacy result")
+	_assert(world_chunk.world_layers.has(GeneratedWorldChunk.NATIVE_TERRAIN_CELLS_KEY), "GeneratedWorldChunk keeps raw native terrain layer")
+	_assert(not semantic_layer.is_empty(), "GeneratedWorldChunk carries semantic native terrain layer")
 	_assert(semantic_layer.get("product_type", "") == WorldLayerScript.PRODUCT_TYPE, "semantic layer dictionary is a WorldLayer")
 	_assert(
-		_variant_signature(compatibility_result)
-		== _variant_signature(GeneratedChunkDataAdapter.normalize_generation_result(world_chunk.legacy_generation_result)),
-		"semantic layer does not change normalized compatibility generation result"
+		_variant_signature(compatibility_result["terrain_cells"])
+		== _variant_signature(world_chunk.world_layers[GeneratedWorldChunk.NATIVE_TERRAIN_CELLS_KEY]),
+		"semantic layer does not change adapter terrain output"
 	)
 	provider.free()
 
@@ -188,10 +191,14 @@ func test_generated_world_chunk_can_carry_semantic_layer_without_breaking_compat
 func test_generated_world_chunk_carries_semantic_world_layer_set() -> void:
 	var provider: Node = _configured_provider()
 	var chunk_coord := Vector3i(1, 0, -1)
-	var working_set := _run_pipeline_for_provider(provider, chunk_coord)
-	var world_chunk := GeneratedWorldChunk.from_working_set(working_set)
+	var world_chunk: GeneratedWorldChunk = provider._world_generation_session().generate_world_chunk(
+		chunk_coord,
+		true,
+		true,
+		{"diagnostics_enabled": true}
+	)
 	var semantic_layer_set: Dictionary = world_chunk.world_layers.get(
-		LegacyChunkGenerationStage.SEMANTIC_WORLD_LAYER_SET_KEY,
+		NativeChunkGenerationStage.SEMANTIC_WORLD_LAYER_SET_KEY,
 		{}
 	)
 	var semantic_layers: Dictionary = semantic_layer_set.get("layers", {})
@@ -205,8 +212,8 @@ func test_generated_world_chunk_carries_semantic_world_layer_set() -> void:
 	_assert(semantic_layers.has("legacy_terrain_cells"), "semantic WorldLayerSet contains legacy terrain layer")
 	_assert(
 		_variant_signature(terrain_layer.get("cells", []))
-		== _variant_signature(world_chunk.legacy_generation_result.get("terrain_cells", [])),
-		"semantic WorldLayerSet preserves legacy terrain cells"
+		== _variant_signature(world_chunk.world_layers.get(GeneratedWorldChunk.NATIVE_TERRAIN_CELLS_KEY, [])),
+		"semantic WorldLayerSet preserves native terrain cells"
 	)
 	provider.free()
 
@@ -329,14 +336,18 @@ func test_adapter_falls_back_to_raw_legacy_terrain_layer_without_semantic_layer(
 	)
 
 
-func test_existing_migration_gate_smoke_still_passes() -> void:
+func test_legacy_runtime_wrappers_report_migration_errors() -> void:
 	var provider: Node = _configured_provider()
 	var chunk_coord := Vector3i(0, 0, 0)
 	var legacy_result: Dictionary = provider._generate_legacy_chunk_generation_result(chunk_coord)
 	var pipeline_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
 	_assert(
-		_variant_signature(pipeline_result) == _variant_signature(legacy_result),
-		"migration gate compatibility path still matches legacy generation"
+		legacy_result.get("error", "") == "legacy_generation_runtime_removed",
+		"private legacy runtime wrapper reports migration error"
+	)
+	_assert(
+		pipeline_result.get("error", "") == "legacy_generation_runtime_removed",
+		"public legacy runtime wrapper reports migration error"
 	)
 	provider.free()
 

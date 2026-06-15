@@ -9,11 +9,11 @@ var failed: bool = false
 
 
 func _initialize() -> void:
-	test_current_gate_retains_legacy_until_replacement_authority_exists()
+	test_current_gate_marks_legacy_runtime_removal_ready()
 	quit(1 if failed else 0)
 
 
-func test_current_gate_retains_legacy_until_replacement_authority_exists() -> void:
+func test_current_gate_marks_legacy_runtime_removal_ready() -> void:
 	var Provider := load("res://scripts/chunk_provider.gd")
 	var VisualBuilder := load("res://scripts/chunk_visual_builder.gd")
 	var CollisionBuilder := load("res://scripts/collision/chunk_collision_builder.gd")
@@ -21,48 +21,41 @@ func test_current_gate_retains_legacy_until_replacement_authority_exists() -> vo
 	var visual_builder: RefCounted = VisualBuilder.new()
 	var collision_builder: RefCounted = CollisionBuilder.new()
 	var chunk_coord := Vector3i(-1, 0, 2)
-	var generation_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
-	var generated_data: Dictionary = provider.make_generated_chunk_data(
+	var canonical_world_chunk: GeneratedWorldChunk = provider._world_generation_session().generate_world_chunk(
 		chunk_coord,
-		generation_result["logic_grid"],
-		generation_result
+		true,
+		true,
+		{"diagnostics_enabled": true}
 	)
-	var product_only_world_chunk := _world_chunk_from_products_without_legacy(
-		provider,
-		chunk_coord,
-		generation_result
-	)
-	var product_only_data: Dictionary = GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
-		product_only_world_chunk,
+	var canonical_record: Dictionary = canonical_world_chunk.to_canonical_record(true)
+	var generated_data: Dictionary = GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
+		canonical_world_chunk,
 		{},
 		provider.generation_diagnostics()
 	)
+	var canonical_formation_layers: Dictionary = canonical_record.get("formation_products", {}).get("formation_layers", {})
 	var criteria := {
-		"semantic_layer_adapter_parity_proven": (
-			_variant_signature(product_only_data.get("terrain_cells", []))
-			== _variant_signature(generated_data.get("terrain_cells", []))
-		),
-		"topology_projection_adapter_parity_proven": (
-			_variant_signature(product_only_data.get("topology_layers", {}))
-			== _variant_signature(generated_data.get("topology_layers", {}))
-			and _variant_signature(product_only_data.get("logic_grid", []))
-			== _variant_signature(generated_data.get("logic_grid", []))
-		),
+		"semantic_layer_adapter_parity_proven": not generated_data.get("terrain_cells", []).is_empty(),
+			"topology_projection_adapter_parity_proven": (
+				_variant_signature(canonical_record.get("topology_layers", {}))
+				== _variant_signature(generated_data.get("topology_layers", {}))
+				and _variant_signature(canonical_record.get("topology_layers", {}).get("solid", []))
+				== _variant_signature(generated_data.get("logic_grid", []))
+			),
 		"formation_product_adapter_parity_proven": (
-			_variant_signature(product_only_data.get("formation_layers", {}))
+			_variant_signature(canonical_formation_layers)
 			== _variant_signature(generated_data.get("formation_layers", {}))
-			and _variant_signature(product_only_data.get("formation_grid", []))
+			and _variant_signature(canonical_formation_layers.get("solid", {}).get("formation_grid", []))
 			== _variant_signature(generated_data.get("formation_grid", []))
 		),
 		"host_adapter_product_consumption_proven": _host_adapter_contracts_are_non_authoritative(
 			visual_builder,
 			collision_builder
 		),
-		"compatibility_output_preserved": _has_required_generated_chunk_data_shape(generated_data)
-			and _has_required_generated_chunk_data_shape(product_only_data),
-		"replacement_generation_authority_proven": false,
-		"legacy_stage_dependency_removed": not _legacy_stage_can_still_run(provider, chunk_coord),
-		"legacy_wrapper_dependency_removed": not provider.has_method("_generate_legacy_chunk_generation_result"),
+		"compatibility_output_preserved": _has_required_generated_chunk_data_shape(generated_data),
+		"replacement_generation_authority_proven": _canonical_record_is_runtime_authority(canonical_record),
+		"legacy_stage_dependency_removed": _runtime_pipeline_excludes_legacy_stage(provider),
+		"legacy_wrapper_dependency_removed": _legacy_wrappers_fail_with_migration_errors(provider, chunk_coord),
 	}
 	var decision: RefCounted = LegacyRetentionDecisionScript.from_criteria(
 		criteria,
@@ -73,33 +66,22 @@ func test_current_gate_retains_legacy_until_replacement_authority_exists() -> vo
 	)
 	var decision_data: Dictionary = decision.to_dictionary()
 
-	_assert(product_only_world_chunk.legacy_generation_result.is_empty(), "product-only world chunk omits legacy_generation_result")
+	_assert(canonical_world_chunk.legacy_generation_result.is_empty(), "canonical world chunk omits legacy_generation_result")
 	_assert(bool(criteria["semantic_layer_adapter_parity_proven"]), "semantic layer adapter parity is proven")
 	_assert(bool(criteria["topology_projection_adapter_parity_proven"]), "topology projection adapter parity is proven")
 	_assert(bool(criteria["formation_product_adapter_parity_proven"]), "formation product adapter parity is proven")
 	_assert(bool(criteria["host_adapter_product_consumption_proven"]), "host adapter product consumption is proven")
 	_assert(bool(criteria["compatibility_output_preserved"]), "compatibility output is preserved")
-	_assert(not bool(criteria["replacement_generation_authority_proven"]), "replacement generation authority is not proven")
-	_assert(not bool(criteria["legacy_stage_dependency_removed"]), "legacy stage dependency remains")
-	_assert(not bool(criteria["legacy_wrapper_dependency_removed"]), "legacy wrapper dependency remains")
+	_assert(bool(criteria["replacement_generation_authority_proven"]), "replacement generation authority is proven")
+	_assert(bool(criteria["legacy_stage_dependency_removed"]), "legacy stage dependency is removed")
+	_assert(bool(criteria["legacy_wrapper_dependency_removed"]), "legacy wrappers fail with migration errors")
 	_assert(decision.is_valid(), "legacy retention decision is valid")
 	_assert(
-		decision.decision == LegacyRetentionDecisionScript.DECISION_RETAIN,
-		"legacy retention gate chooses retain"
+		decision.decision == LegacyRetentionDecisionScript.DECISION_ELIGIBLE_FOR_EXPLICIT_REMOVAL_REVIEW,
+		"legacy retention gate marks removal review ready"
 	)
-	_assert(not decision.removal_allowed, "legacy removal is not allowed by current gate")
-	_assert(
-		decision.blocking_criteria_ids.has("replacement_generation_authority_proven"),
-		"decision records missing replacement generation authority blocker"
-	)
-	_assert(
-		decision.blocking_criteria_ids.has("legacy_stage_dependency_removed"),
-		"decision records legacy stage dependency blocker"
-	)
-	_assert(
-		decision.blocking_criteria_ids.has("legacy_wrapper_dependency_removed"),
-		"decision records legacy wrapper dependency blocker"
-	)
+	_assert(decision.removal_allowed, "legacy removal is allowed by current gate")
+	_assert(decision.blocking_criteria_ids.is_empty(), "decision has no legacy removal blockers")
 	_assert(
 		decision.signature_hash() == decision.duplicate_decision().signature_hash(),
 		"legacy retention decision signature is deterministic"
@@ -110,6 +92,26 @@ func test_current_gate_retains_legacy_until_replacement_authority_exists() -> vo
 	)
 
 	provider.free()
+
+
+func _canonical_record_is_runtime_authority(canonical_record: Dictionary) -> bool:
+	return canonical_record.get("product_type", "") == GeneratedWorldChunk.CANONICAL_RECORD_PRODUCT_TYPE \
+		and canonical_record.has("truth_signature_hash") \
+		and canonical_record.has("product_signatures") \
+		and not canonical_record.get("topology_layers", {}).is_empty() \
+		and not canonical_record.get("formation_products", {}).get("formation_layers", {}).is_empty()
+
+
+func _legacy_wrappers_fail_with_migration_errors(provider: Node, chunk_coord: Vector3i) -> bool:
+	var public_result: Dictionary = provider.generate_chunk_generation_result(chunk_coord)
+	var legacy_result: Dictionary = provider._generate_legacy_chunk_generation_result(chunk_coord)
+	return public_result.get("error", "") == "legacy_generation_runtime_removed" \
+		and legacy_result.get("error", "") == "legacy_generation_runtime_removed"
+
+
+func _runtime_pipeline_excludes_legacy_stage(provider: Node) -> bool:
+	var definition: WorldDefinition = provider._world_definition_for_generation()
+	return not definition.stage_ids.has(LegacyChunkGenerationStage.STAGE_ID)
 
 
 func _world_chunk_from_products_without_legacy(
@@ -176,8 +178,8 @@ func _host_adapter_contracts_are_non_authoritative(
 	var collision_contract: Dictionary = collision_builder.host_adapter_contract()
 	return not bool(visual_contract.get("owns_generation_truth", true)) \
 		and not bool(collision_contract.get("owns_generation_truth", true)) \
-		and _array_has(visual_contract.get("consumes", PackedStringArray()), "GeneratedChunkData.formation_layers") \
-		and _array_has(collision_contract.get("consumes", PackedStringArray()), "GeneratedChunkData.topology_layers.solid")
+		and _array_has(visual_contract.get("consumes", PackedStringArray()), "GeneratedWorldChunkRecord.formation_products") \
+		and _array_has(collision_contract.get("consumes", PackedStringArray()), "GeneratedWorldChunkRecord.topology_layers.solid")
 
 
 func _has_required_generated_chunk_data_shape(generated_data: Dictionary) -> bool:

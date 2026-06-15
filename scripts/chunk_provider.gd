@@ -43,6 +43,10 @@ var cache_hit_count: int = 0
 var cache_miss_count: int = 0
 var last_cache_lookup_us: int = 0
 var last_cache_decode_us: int = 0
+var last_generation_us: int = 0
+var last_canonical_record_encode_us: int = 0
+var last_cache_store_us: int = 0
+var last_generation_diagnostics: Dictionary = {}
 var last_cache_hit_required_adapter_conversion: bool = false
 var formation_sample_cache: RefCounted = null
 var _world_generation_session_instance: RefCounted = null
@@ -114,14 +118,28 @@ func formation_sampling_context() -> Dictionary:
 
 
 func get_loaded_chunk_data(chunk_coord: Vector3i) -> Dictionary:
+	var canonical_record := get_loaded_chunk_record(chunk_coord)
+	if canonical_record.is_empty():
+		return {}
+	var world_chunk := GeneratedWorldChunk.from_canonical_record(canonical_record, true)
+	return GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
+		world_chunk,
+		{},
+		generation_diagnostics(),
+		true
+	)
+
+
+func get_loaded_chunk_record(chunk_coord: Vector3i) -> Dictionary:
 	var record: Dictionary = loaded_chunks.get(_chunk_key(chunk_coord), {})
-	var generated_chunk_data: Dictionary = record.get("generated_chunk_data", {})
-	return generated_chunk_data.duplicate(true)
+	var canonical_record: Dictionary = record.get("canonical_record", {})
+	return canonical_record.duplicate(true)
 
 
 func get_loaded_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
-	var generated_chunk_data := get_loaded_chunk_data(chunk_coord)
-	return generated_chunk_data.get("logic_grid", [])
+	var canonical_record := get_loaded_chunk_record(chunk_coord)
+	var topology_layers: Dictionary = canonical_record.get("topology_layers", {})
+	return topology_layers.get(LAYER_SOLID, []).duplicate(true)
 
 
 func configure_async_provider(enabled: bool, delay_frames: int) -> void:
@@ -180,15 +198,7 @@ func _complete_request(request_id: int) -> void:
 
 func _load_chunk_content(chunk_coord: Vector3i) -> void:
 	var cache_identity := _generated_chunk_identity_for_chunk(chunk_coord)
-	var world_chunk := _load_or_generate_world_chunk(chunk_coord, cache_identity)
-	var generated_chunk_data := GeneratedChunkDataAdapter.generated_chunk_data_from_world_chunk(
-		world_chunk,
-		{},
-		generation_diagnostics(),
-		false
-	)
-	if use_chunk_cache and last_cache_decode_us > 0:
-		last_cache_hit_required_adapter_conversion = true
+	var canonical_record := _load_or_generate_canonical_record(chunk_coord, cache_identity)
 	_prune_formation_sample_cache()
 	loaded_chunks[_chunk_key(chunk_coord)] = {
 		"coord": chunk_coord,
@@ -198,7 +208,7 @@ func _load_chunk_content(chunk_coord: Vector3i) -> void:
 		"generation_settings_hash": cache_identity.generation_settings_hash,
 		"requested_product_set": cache_identity.requested_product_set.duplicate(),
 		"cache_key": cache_identity.cache_key(),
-		"generated_chunk_data": generated_chunk_data,
+		"canonical_record": canonical_record,
 	}
 
 
@@ -206,32 +216,61 @@ func _load_or_generate_world_chunk(
 	chunk_coord: Vector3i,
 	cache_identity: GeneratedChunkIdentity
 ) -> GeneratedWorldChunk:
+	var canonical_record := _load_or_generate_canonical_record(chunk_coord, cache_identity)
+	if canonical_record.is_empty():
+		return null
+	return GeneratedWorldChunk.from_canonical_record(canonical_record, true)
+
+
+func _load_or_generate_canonical_record(
+	chunk_coord: Vector3i,
+	cache_identity: GeneratedChunkIdentity
+) -> Dictionary:
 	last_cache_lookup_us = 0
 	last_cache_decode_us = 0
+	last_generation_us = 0
+	last_canonical_record_encode_us = 0
+	last_cache_store_us = 0
+	last_generation_diagnostics = {}
 	last_cache_hit_required_adapter_conversion = false
 	if use_chunk_cache:
 		_ensure_cache()
 		var lookup_start_us := Time.get_ticks_usec()
-		if chunk_cache.has_world_chunk(cache_identity):
+		if chunk_cache.has_canonical_record(cache_identity):
 			last_cache_lookup_us = Time.get_ticks_usec() - lookup_start_us
 			cache_hit_count += 1
 			var decode_start_us := Time.get_ticks_usec()
-			var cached_world_chunk: GeneratedWorldChunk = chunk_cache.load_world_chunk_for_identity(cache_identity)
+			var cached_record: Dictionary = chunk_cache.load_canonical_record_for_identity(cache_identity)
 			last_cache_decode_us = Time.get_ticks_usec() - decode_start_us
-			if cached_world_chunk != null:
-				return cached_world_chunk
+			if not cached_record.is_empty():
+				return cached_record
 		else:
 			last_cache_lookup_us = Time.get_ticks_usec() - lookup_start_us
 
-		cache_miss_count += 1
-		var generated_world_chunk := _generate_world_chunk_internal(chunk_coord)
-		chunk_cache.store_world_chunk_for_identity(
-			cache_identity,
-			generated_world_chunk
-		)
-		return generated_world_chunk
+			cache_miss_count += 1
+			var generation_start_us := Time.get_ticks_usec()
+			var generated_world_chunk := _generate_world_chunk_internal(chunk_coord)
+			last_generation_us = Time.get_ticks_usec() - generation_start_us
+			last_generation_diagnostics = generated_world_chunk.generation_diagnostics.duplicate(true)
+			var record_encode_start_us := Time.get_ticks_usec()
+			var canonical_record := generated_world_chunk.to_canonical_record(true)
+			last_canonical_record_encode_us = Time.get_ticks_usec() - record_encode_start_us
+			var cache_store_start_us := Time.get_ticks_usec()
+			chunk_cache.store_canonical_record_for_identity(
+				cache_identity,
+				canonical_record
+			)
+			last_cache_store_us = Time.get_ticks_usec() - cache_store_start_us
+			return canonical_record
 
-	return _generate_world_chunk_internal(chunk_coord)
+	var generation_start_us := Time.get_ticks_usec()
+	var generated_world_chunk := _generate_world_chunk_internal(chunk_coord)
+	last_generation_us = Time.get_ticks_usec() - generation_start_us
+	last_generation_diagnostics = generated_world_chunk.generation_diagnostics.duplicate(true)
+	var record_encode_start_us := Time.get_ticks_usec()
+	var canonical_record := generated_world_chunk.to_canonical_record(true)
+	last_canonical_record_encode_us = Time.get_ticks_usec() - record_encode_start_us
+	return canonical_record
 
 
 func _load_or_generate_chunk_result(chunk_coord: Vector3i, cache_identity: GeneratedChunkIdentity) -> Dictionary:
@@ -256,7 +295,9 @@ func _ensure_formation_sample_cache() -> void:
 
 
 func generate_chunk_logic_grid(chunk_coord: Vector3i) -> Array:
-	return GeneratedChunkDataAdapter.logic_grid_from_world_chunk(_generate_world_chunk_internal(chunk_coord))
+	var canonical_record := _generate_world_chunk_internal(chunk_coord).to_canonical_record(true)
+	var topology_layers: Dictionary = canonical_record.get("topology_layers", {})
+	return topology_layers.get(LAYER_SOLID, []).duplicate(true)
 
 
 func generate_chunk_generation_result(chunk_coord: Vector3i) -> Dictionary:
@@ -356,18 +397,15 @@ func make_generated_chunk_data(
 
 
 func make_formation_layers(chunk_coord: Vector3i, topology_layers: Dictionary) -> Dictionary:
-	var formation_layers := {}
+	var requested_ids := PackedStringArray()
 	for layer_id in _ordered_layer_ids(topology_layers):
-		var id := String(layer_id)
-		var layer_grid: Array = topology_layers.get(id, [])
-		var layer_payload: Dictionary = _world_generation_session().generate_native_formation_layer(
-			chunk_coord,
-			id,
-			layer_grid
-		)
-		if layer_payload.has("formation_grid"):
-			formation_layers[id] = layer_payload
-	return formation_layers
+		requested_ids.append(String(layer_id))
+	var payload: Dictionary = _world_generation_session().generate_native_formation_layers(
+		chunk_coord,
+		topology_layers,
+		requested_ids
+	)
+	return payload.get("formation_layers", {})
 
 
 func make_formation_data(chunk_coord: Vector3i, logic_grid: Array) -> Dictionary:

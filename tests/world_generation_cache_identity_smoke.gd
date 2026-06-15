@@ -15,6 +15,8 @@ func _initialize() -> void:
 	test_chunk_cache_legacy_records_do_not_evict_identity_records()
 	test_cache_policy_rejects_incomplete_identity()
 	test_provider_cache_records_generated_identity()
+	test_provider_runtime_loaded_record_is_canonical()
+	test_cache_canonical_record_is_mutation_safe()
 	test_formation_sample_cache_lru_eviction()
 	test_provider_formation_sample_cache_is_bounded()
 	quit(1 if failed else 0)
@@ -206,6 +208,49 @@ func test_provider_cache_records_generated_identity() -> void:
 	_assert(provider.cache_entry_count() == 2, "provider keeps distinct cache entries for distinct world identities")
 
 	provider.free()
+
+
+func test_provider_runtime_loaded_record_is_canonical() -> void:
+	var provider: Node = ChunkProviderScript.new()
+	provider.use_chunk_cache = true
+	var chunk_coord := Vector3i(3, 0, -1)
+	provider._load_chunk_content(chunk_coord)
+	var loaded_record: Dictionary = provider.loaded_chunks.get(provider._chunk_key(chunk_coord), {})
+	var canonical_record: Dictionary = loaded_record.get("canonical_record", {})
+
+	_assert(not canonical_record.is_empty(), "provider loaded runtime record stores canonical record")
+	_assert(not loaded_record.has("generated_chunk_data"), "provider runtime loaded record does not store GeneratedChunkData")
+	_assert(canonical_record.has("topology_projection_set"), "canonical runtime record carries topology projection set")
+	_assert(canonical_record.has("formation_products"), "canonical runtime record carries formation products")
+	_assert(canonical_record.has("product_signatures"), "canonical runtime record carries precomputed product signatures")
+	_assert(int(canonical_record.get("truth_signature_hash", 0)) != 0, "canonical runtime record carries precomputed truth hash")
+	_assert(
+		canonical_record.get("record_diagnostics", {}).get("truth_hash_source", "") == "product_signatures",
+		"canonical runtime record hashes truth from product signatures"
+	)
+	_assert(provider.get("last_cache_hit_required_adapter_conversion") == false, "runtime load records no adapter conversion")
+	provider.free()
+
+
+func test_cache_canonical_record_is_mutation_safe() -> void:
+	var Cache := load("res://scripts/chunk_cache.gd")
+	var cache: RefCounted = Cache.new()
+	var identity := _identity("cache_world", 3, 111, 222, Vector3i(4, 0, 0), PackedStringArray(["generated_world_chunk"]))
+	var world_chunk := _sample_world_chunk(identity, "mutation_safe")
+	cache.store_world_chunk_for_identity(identity, world_chunk)
+
+	var loaded_record: Dictionary = cache.load_canonical_record_for_identity(identity)
+	loaded_record["topology_layers"]["solid"][0][0] = 99
+	var loaded_again: Dictionary = cache.load_canonical_record_for_identity(identity)
+	_assert(
+		int(loaded_again.get("topology_layers", {}).get("solid", [])[0][0]) != 99,
+		"mutating loaded canonical record does not mutate cached record"
+	)
+	_assert(
+		GeneratedWorldChunk.from_canonical_record(loaded_again, true).generated_truth_signature_hash()
+		== int(loaded_again.get("truth_signature_hash", 0)),
+		"canonical record materialization reads precomputed truth hash"
+	)
 
 
 func test_formation_sample_cache_lru_eviction() -> void:

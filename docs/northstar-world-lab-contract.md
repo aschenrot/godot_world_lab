@@ -38,7 +38,7 @@ Normalized reality is imported and validated input ready for use by lab systems.
 Formed reality is data shaped for runtime consumption, before Godot nodes are
 created.
 
-- `GeneratedChunkData`
+- `GeneratedChunkData` explicit adapter/export record
   - `chunk_coord`
   - `generator_version`
   - `generation_settings_hash`
@@ -60,8 +60,9 @@ created.
     dependency projections
   - generated-truth signature independent of diagnostics/report verbosity
 - Legacy runtime generation dictionaries are removed from runtime flow.
-  `GeneratedChunkData` remains an adapter output for Godot realization, not
-  cache truth or generation truth.
+  `GeneratedChunkData` remains an explicit adapter/export/preview output, not
+  provider runtime truth, cache truth, visual truth, collision truth, or
+  generation truth.
 - `ChunkVisualPlan`
   - `chunk_coord`
   - `visual_layers`
@@ -87,7 +88,7 @@ contract.
 Instantiated reality is live Godot runtime state.
 
 - Resident chunk records from `spatial_streaming` lifecycle events.
-- Loaded `GeneratedChunkData` records in the provider.
+- Loaded canonical `GeneratedWorldChunkRecord` records in the provider.
 - `ChunkRoot` `Node3D` instances.
 - `MultiMeshInstance3D` buckets built from `ChunkInstantiationPlan`.
 - Runtime budget diagnostics from `WorldController.runtime_budget_contract()`.
