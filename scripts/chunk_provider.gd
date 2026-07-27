@@ -37,6 +37,7 @@ var streaming_node: Node
 var pending_requests: Dictionary = {}
 var loaded_chunks: Dictionary = {}
 var chunk_cache: RefCounted
+var frame_budget_scheduler_enabled: bool = false
 var completed_load_count: int = 0
 var completed_unload_count: int = 0
 var cache_hit_count: int = 0
@@ -72,7 +73,7 @@ func _on_chunk_load_requested(request_id: int, x: int, y: int, z: int) -> void:
 	var chunk_coord := Vector3i(x, y, z)
 	_enqueue_request(request_id, "load", chunk_coord)
 	streaming_node.provider_started(request_id, x, y, z)
-	if not async_provider_enabled:
+	if not async_provider_enabled and not frame_budget_scheduler_enabled:
 		_complete_request(request_id)
 
 
@@ -82,7 +83,7 @@ func _on_chunk_unload_requested(request_id: int, x: int, y: int, z: int) -> void
 	var chunk_coord := Vector3i(x, y, z)
 	_enqueue_request(request_id, "unload", chunk_coord)
 	streaming_node.provider_started(request_id, x, y, z)
-	if not async_provider_enabled:
+	if not async_provider_enabled and not frame_budget_scheduler_enabled:
 		_complete_request(request_id)
 
 
@@ -147,23 +148,47 @@ func configure_async_provider(enabled: bool, delay_frames: int) -> void:
 	provider_delay_frames = maxi(delay_frames, 0)
 
 
+func configure_frame_budget_scheduler(enabled: bool) -> void:
+	frame_budget_scheduler_enabled = enabled
+
+
 func configure_chunk_cache(enabled: bool) -> void:
 	use_chunk_cache = enabled
 	_ensure_cache()
 
 
 func _process(_delta: float) -> void:
-	if not async_provider_enabled:
+	if frame_budget_scheduler_enabled or not async_provider_enabled:
 		return
 
-	var request_ids: Array = pending_requests.keys()
-	request_ids.sort()
-	for request_id in request_ids:
+	_advance_pending_request_frames()
+	for request_id in _sorted_pending_request_ids(Vector3.ZERO):
+		if not pending_requests.has(request_id):
+			continue
 		var record: Dictionary = pending_requests[request_id]
-		record["frames_remaining"] = int(record["frames_remaining"]) - 1
-		pending_requests[request_id] = record
 		if int(record["frames_remaining"]) <= 0:
 			_complete_request(request_id)
+
+
+func drain_budgeted_requests(scheduler: RefCounted, focus_position: Vector3) -> int:
+	if scheduler == null:
+		return 0
+	_advance_pending_request_frames()
+	var completed_count := 0
+	for request_id in _sorted_pending_request_ids(focus_position):
+		if not pending_requests.has(request_id):
+			continue
+		var record: Dictionary = pending_requests[request_id]
+		if int(record["frames_remaining"]) > 0:
+			continue
+		var chunk_coord: Vector3i = record["chunk"]
+		var phase := "provider_load" if String(record["kind"]) == "load" else "provider_unload"
+		if not scheduler.can_start_job():
+			scheduler.defer_job(phase, chunk_coord)
+			break
+		if scheduler.run_job(phase, chunk_coord, Callable(self, "_complete_request").bind(request_id)):
+			completed_count += 1
+	return completed_count
 
 
 func _enqueue_request(request_id: int, kind: String, chunk_coord: Vector3i) -> void:
@@ -172,6 +197,54 @@ func _enqueue_request(request_id: int, kind: String, chunk_coord: Vector3i) -> v
 		"chunk": chunk_coord,
 		"frames_remaining": maxi(provider_delay_frames, 0),
 	}
+
+
+func _advance_pending_request_frames() -> void:
+	if not async_provider_enabled:
+		return
+	for request_id in pending_requests.keys():
+		if not pending_requests.has(request_id):
+			continue
+		var record: Dictionary = pending_requests[request_id]
+		record["frames_remaining"] = maxi(int(record["frames_remaining"]) - 1, 0)
+		pending_requests[request_id] = record
+
+
+func _sorted_pending_request_ids(focus_position: Vector3) -> Array:
+	var entries: Array[Dictionary] = []
+	for request_id in pending_requests.keys():
+		var record: Dictionary = pending_requests[request_id]
+		var chunk_coord: Vector3i = record["chunk"]
+		entries.append({
+			"request_id": int(request_id),
+			"priority": 0 if String(record["kind"]) == "unload" else 1,
+			"distance": _chunk_distance_squared(chunk_coord, focus_position),
+		})
+	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a["priority"]) != int(b["priority"]):
+			return int(a["priority"]) < int(b["priority"])
+		if float(a["distance"]) != float(b["distance"]):
+			return float(a["distance"]) < float(b["distance"])
+		return int(a["request_id"]) < int(b["request_id"])
+	)
+	var ids: Array = []
+	for entry in entries:
+		ids.append(int(entry["request_id"]))
+	return ids
+
+
+func _chunk_distance_squared(chunk_coord: Vector3i, focus_position: Vector3) -> float:
+	var chunk_size_meters := 32.0
+	if streaming_node != null and streaming_node.has_method("describe_config"):
+		var config: Variant = streaming_node.call("describe_config")
+		if typeof(config) == TYPE_DICTIONARY:
+			chunk_size_meters = float(config.get("chunk_edge_meters", chunk_size_meters))
+	var center := Vector3(
+		(float(chunk_coord.x) + 0.5) * chunk_size_meters,
+		(float(chunk_coord.y) + 0.5) * chunk_size_meters,
+		(float(chunk_coord.z) + 0.5) * chunk_size_meters
+	)
+	return center.distance_squared_to(focus_position)
 
 
 func _complete_request(request_id: int) -> void:
@@ -551,9 +624,10 @@ func get_diagnostics() -> Dictionary:
 		"completed_loads": completed_load_count,
 		"completed_unloads": completed_unload_count,
 		"async_provider_enabled": async_provider_enabled,
-		"provider_delay_frames": provider_delay_frames,
-		"generation": generation_diagnostics(),
-	}
+			"provider_delay_frames": provider_delay_frames,
+			"frame_budget_scheduler_enabled": frame_budget_scheduler_enabled,
+			"generation": generation_diagnostics(),
+		}
 
 
 func _world_generation_session() -> RefCounted:

@@ -65,7 +65,9 @@ smoke test enforces `unattributed_ratio <= 0.05`.
 The dirty-cell phase records `dirty_corner_count` and
 `rebuilt_bucket_count`. Streaming phases record canonical cache hit, miss,
 entry, lookup, decode, and adapter-conversion counters. Collision phases record
-`blocking_cell_count`, `merged_shape_count`, and `merge_ratio`.
+blocker metrics (`blocking_cell_count`, `merged_shape_count`, `merge_ratio`) and
+floor metrics (`floor_cell_count`, `floor_shape_count`, `floor_merge_ratio`)
+when walkable ground floor collision is requested.
 
 ## Current Default Baseline
 

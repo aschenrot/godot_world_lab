@@ -91,6 +91,8 @@ Instantiated reality is live Godot runtime state.
 - Loaded canonical `GeneratedWorldChunkRecord` records in the provider.
 - `ChunkRoot` `Node3D` instances.
 - `MultiMeshInstance3D` buckets built from `ChunkInstantiationPlan`.
+- `StaticBody3D` chunk collision with merged blocker rectangles and explicit
+  walkable ground floor rectangles.
 - Runtime budget diagnostics from `WorldController.runtime_budget_contract()`.
 
 ## Simulated Reality
@@ -103,7 +105,14 @@ Simulated reality is runtime behavior driven by Godot.
 - Host-owned delay/cache experiments.
 
 `spatial_streaming` remains the lifecycle state machine. Godot simulates focus
-and provider work; it does not own lifecycle truth.
+and provider work; it does not own lifecycle truth. In 2D terrain playground
+mode, `WorldController` projects focus to a fixed terrain Y plane before sending
+it to streaming so falling player physics cannot request extra vertical terrain
+layers.
+`WorldController` also owns the per-frame chunk work scheduler. Provider
+completion, visual realization, collision, placement, overlay, scene attach, and
+unload cleanup are Godot lab CPU scheduling concerns, not `spatial_streaming`
+lifecycle truth.
 
 ## Expressed Reality
 

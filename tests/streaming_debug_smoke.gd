@@ -3,6 +3,7 @@ extends SceneTree
 var main_scene: Node
 var frame: int = 0
 var failed: bool = false
+var moved: bool = false
 
 
 func _initialize() -> void:
@@ -14,6 +15,8 @@ func _initialize() -> void:
 		return
 
 	main_scene = load("res://scenes/main.tscn").instantiate()
+	main_scene.load_radius_chunks = 1
+	main_scene.unload_radius_chunks = 2
 	root.add_child(main_scene)
 
 
@@ -24,16 +27,35 @@ func _process(_delta: float) -> bool:
 
 	frame += 1
 
-	if frame == 4:
+	if frame > 240:
+		_fail("budgeted runtime did not drain")
+		main_scene.clear_visual_roots_for_shutdown()
+		quit(1)
+		return true
+
+	if not moved and _runtime_drained() and main_scene.visual_chunk_count() > 0:
 		_assert_initial_streaming()
 		main_scene.player_or_camera.global_position = Vector3(320.0, 0.0, 0.0)
+		moved = true
 
-	if frame == 16:
+	if moved and _runtime_drained() and main_scene.chunk_provider.completed_unload_count > 0:
 		_assert_after_movement()
-		quit(0)
+		main_scene.clear_visual_roots_for_shutdown()
+		quit(1 if failed else 0)
 		return true
 
 	return false
+
+
+func _runtime_drained() -> bool:
+	var frame_budget: Dictionary = main_scene.frame_budget_diagnostics()
+	var queue_sizes: Dictionary = frame_budget.get("queue_sizes", {})
+	return (
+		main_scene.chunk_provider.pending_request_count() == 0
+		and main_scene.streaming_node.pending_request_count() == 0
+		and int(queue_sizes.get("realization_pending", 0)) == 0
+		and int(queue_sizes.get("unload_cleanup_pending", 0)) == 0
+	)
 
 
 func _assert_initial_streaming() -> void:
@@ -52,11 +74,11 @@ func _assert_initial_streaming() -> void:
 	)
 	_assert(
 		main_scene.chunk_provider.pending_request_count() == 0,
-		"provider drains immediate requests"
+		"provider drains budgeted requests"
 	)
 	_assert(
 		main_scene.streaming_node.pending_request_count() == 0,
-		"streaming controller has no pending requests after immediate provider completion"
+		"streaming controller has no pending requests after budgeted provider completion"
 	)
 
 

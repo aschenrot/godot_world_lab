@@ -1,14 +1,25 @@
 extends Node3D
 
+const FrameBudgetSchedulerScript := preload("res://scripts/runtime/frame_budget_scheduler.gd")
+
 @export var chunk_edge_meters: float = 32.0
 @export var load_radius_chunks: int = 4
 @export var unload_radius_chunks: int = 6
 @export var vertical_load_radius_chunks: int = 0
 @export var vertical_unload_radius_chunks: int = 1
+@export_enum("fixed_y", "focus_y") var streaming_focus_y_policy: String = "fixed_y"
+@export var streaming_focus_fixed_y_meters: float = 0.0
+@export var enable_frame_budget_scheduler: bool = true
+@export_enum("balanced_60") var frame_budget_preset: String = "balanced_60"
+@export var frame_chunk_budget_us: int = 4000
+@export var minimum_frame_budget_jobs: int = 1
 @export var max_pooled_visual_roots: int = 64
 @export var focus_target_path: NodePath
 @export var chunk_root_container_path: NodePath
 @export var enable_collision_prototype: bool = true
+@export var ground_floor_collision_enabled: bool = true
+@export var ground_floor_thickness_meters: float = 0.2
+@export var ground_floor_top_y_meters: float = 0.0
 @export var enable_placed_asset_prototype: bool = true
 
 var player_or_camera: Node3D
@@ -16,6 +27,7 @@ var chunk_root_container: Node3D
 var streaming_node: Node
 var chunk_provider: Node
 var debug_overlay: Node
+var frame_budget_scheduler: RefCounted
 var chunk_visual_builder: RefCounted
 var chunk_collision_builder: RefCounted
 var placed_object_layer: RefCounted
@@ -23,6 +35,8 @@ var chunk_overlay_sandbox: RefCounted
 var tile_mesh_catalog: RefCounted
 var visual_chunk_roots: Dictionary = {}
 var visual_root_pool: Array[Node3D] = []
+var pending_unload_roots: Dictionary = {}
+var realization_jobs: Dictionary = {}
 var pooled_visual_root_total: int = 0
 var reused_visual_root_total: int = 0
 var invalid_visual_plan_count: int = 0
@@ -37,12 +51,16 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if (
-		streaming_node != null
-		and player_or_camera != null
-		and streaming_node.has_method("update_focus_from_vector3")
-	):
-		streaming_node.update_focus_from_vector3(player_or_camera.global_position)
+	if enable_frame_budget_scheduler and frame_budget_scheduler != null:
+		_configure_frame_budget_scheduler()
+		frame_budget_scheduler.begin_frame()
+	elif chunk_provider != null and chunk_provider.has_method("configure_frame_budget_scheduler"):
+		chunk_provider.configure_frame_budget_scheduler(false)
+
+	_update_streaming_focus()
+
+	if enable_frame_budget_scheduler and frame_budget_scheduler != null:
+		_drain_budgeted_runtime()
 
 
 func _resolve_scene_references() -> void:
@@ -80,6 +98,8 @@ func _install_support_nodes() -> void:
 	chunk_provider.name = "ChunkProvider"
 	chunk_provider.set_script(provider_script)
 	add_child(chunk_provider)
+	if chunk_provider.has_method("configure_frame_budget_scheduler"):
+		chunk_provider.configure_frame_budget_scheduler(enable_frame_budget_scheduler)
 
 	debug_overlay = Node3D.new()
 	debug_overlay.name = "ChunkDebugOverlay"
@@ -97,6 +117,8 @@ func _install_support_nodes() -> void:
 	var placed_layer_script := load("res://scripts/placed/placed_object_layer.gd")
 	var overlay_sandbox_script := load("res://scripts/overlays/chunk_overlay_sandbox.gd")
 	var catalog_script := load("res://scripts/tile_mesh_catalog.gd")
+	frame_budget_scheduler = FrameBudgetSchedulerScript.new()
+	_configure_frame_budget_scheduler()
 	chunk_visual_builder = builder_script.new()
 	chunk_collision_builder = collision_builder_script.new()
 	placed_object_layer = placed_layer_script.new()
@@ -111,7 +133,15 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 		return
 	if chunk_provider == null or chunk_visual_builder == null or tile_mesh_catalog == null:
 		return
+	if enable_frame_budget_scheduler:
+		_enqueue_realization_job(chunk_coord)
+		return
 
+	_realize_chunk_immediately(chunk_coord)
+
+
+func _realize_chunk_immediately(chunk_coord: Vector3i) -> void:
+	var key := _chunk_key(chunk_coord)
 	var canonical_record: Dictionary = chunk_provider.call("get_loaded_chunk_record", chunk_coord)
 	if canonical_record.is_empty():
 		return
@@ -142,9 +172,9 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 	_add_placed_objects_if_enabled(visual_root, chunk_coord)
 	_apply_overlay(visual_root, chunk_coord)
 	visual_root.position = Vector3(
-		float(x) * chunk_edge_meters,
-		float(y) * chunk_edge_meters,
-		float(z) * chunk_edge_meters
+		float(chunk_coord.x) * chunk_edge_meters,
+		float(chunk_coord.y) * chunk_edge_meters,
+		float(chunk_coord.z) * chunk_edge_meters
 	)
 	chunk_root_container.add_child(visual_root)
 	visual_chunk_roots[key] = visual_root
@@ -152,6 +182,14 @@ func _on_chunk_resident(x: int, y: int, z: int) -> void:
 
 func _on_chunk_unloaded(x: int, y: int, z: int) -> void:
 	var key := _chunk_key(Vector3i(x, y, z))
+	if enable_frame_budget_scheduler:
+		_enqueue_unload_cleanup(key)
+		return
+
+	_unload_visual_root_immediately(key)
+
+
+func _unload_visual_root_immediately(key: String) -> void:
 	var root: Node3D = visual_chunk_roots.get(key)
 	if root != null:
 		if root.get_parent() != null:
@@ -161,6 +199,201 @@ func _on_chunk_unloaded(x: int, y: int, z: int) -> void:
 		if visual_root_pool.size() > pool_size_before:
 			pooled_visual_root_total += 1
 	visual_chunk_roots.erase(key)
+
+
+func _enqueue_unload_cleanup(key: String) -> void:
+	_cancel_realization_job(key)
+	var root: Node3D = visual_chunk_roots.get(key)
+	if root == null:
+		return
+	if root.get_parent() != null:
+		root.get_parent().remove_child(root)
+	visual_chunk_roots.erase(key)
+	pending_unload_roots[key] = root
+
+
+func _enqueue_realization_job(chunk_coord: Vector3i) -> void:
+	var key := _chunk_key(chunk_coord)
+	if realization_jobs.has(key) or visual_chunk_roots.has(key):
+		return
+	realization_jobs[key] = {
+		"chunk_coord": chunk_coord,
+		"stage": "visual_plan",
+		"canonical_record": {},
+		"visual_plan": {},
+		"instantiation_plan": {},
+		"visual_root": null,
+	}
+
+
+func _drain_budgeted_runtime() -> void:
+	_drain_unload_cleanup_queue()
+	if chunk_provider != null and chunk_provider.has_method("drain_budgeted_requests"):
+		chunk_provider.drain_budgeted_requests(frame_budget_scheduler, streaming_focus_position())
+	_drain_realization_queue()
+
+
+func _drain_unload_cleanup_queue() -> void:
+	for key in pending_unload_roots.keys():
+		if not pending_unload_roots.has(key):
+			continue
+		var root: Node3D = pending_unload_roots[key]
+		var chunk_coord := _chunk_coord_from_key(key)
+		if not frame_budget_scheduler.can_start_job():
+			frame_budget_scheduler.defer_job("unload_cleanup", chunk_coord)
+			break
+		frame_budget_scheduler.run_job(
+			"unload_cleanup",
+			chunk_coord,
+			Callable(self, "_complete_unload_cleanup").bind(key, root)
+		)
+
+
+func _complete_unload_cleanup(key: String, root: Node3D) -> void:
+	if root != null:
+		var pool_size_before := visual_root_pool.size()
+		chunk_visual_builder.destroy_or_pool(root, visual_root_pool, max_pooled_visual_roots)
+		if visual_root_pool.size() > pool_size_before:
+			pooled_visual_root_total += 1
+	pending_unload_roots.erase(key)
+
+
+func _drain_realization_queue() -> void:
+	for entry in _sorted_realization_entries():
+		var key: String = entry["key"]
+		if not realization_jobs.has(key):
+			continue
+		var chunk_coord: Vector3i = realization_jobs[key]["chunk_coord"]
+		var phase := _phase_for_realization_stage(String(realization_jobs[key]["stage"]))
+		if not frame_budget_scheduler.can_start_job():
+			frame_budget_scheduler.defer_job(phase, chunk_coord)
+			break
+		frame_budget_scheduler.run_job(
+			phase,
+			chunk_coord,
+			Callable(self, "_run_realization_stage").bind(key)
+		)
+
+
+func _run_realization_stage(key: String) -> void:
+	if not realization_jobs.has(key):
+		return
+	var job: Dictionary = realization_jobs[key]
+	var chunk_coord: Vector3i = job["chunk_coord"]
+	var stage := String(job["stage"])
+
+	if stage == "visual_plan":
+		var canonical_record: Dictionary = chunk_provider.call("get_loaded_chunk_record", chunk_coord)
+		if canonical_record.is_empty():
+			return
+		var visual_plan: Dictionary = chunk_visual_builder.build_visual_plan_from_canonical_source(
+			canonical_record,
+			tile_mesh_catalog
+		)
+		last_visual_plan_diagnostics = visual_plan.get("diagnostics", {})
+		if not bool(last_visual_plan_diagnostics.get("is_valid", true)):
+			invalid_visual_plan_count += 1
+		job["canonical_record"] = canonical_record
+		job["visual_plan"] = visual_plan
+		job["stage"] = "visual_bucket_build"
+	elif stage == "visual_bucket_build":
+		var instantiation_plan: Dictionary = chunk_visual_builder.build_instantiation_plan(
+			chunk_coord,
+			job["visual_plan"],
+			tile_mesh_catalog,
+			"multimesh"
+		)
+		last_instantiation_plan_diagnostics = instantiation_plan.get("diagnostics", {})
+		job["instantiation_plan"] = instantiation_plan
+		job["visual_root"] = chunk_visual_builder.build_chunk_visual_from_instantiation_plan(
+			instantiation_plan,
+			tile_mesh_catalog,
+			chunk_edge_meters,
+			chunk_provider.chunk_size_cells,
+			_take_pooled_visual_root()
+		)
+		job["stage"] = "collision_build"
+	elif stage == "collision_build":
+		_add_collision_if_enabled(job["visual_root"], chunk_coord, job["canonical_record"])
+		job["stage"] = "placement_build"
+	elif stage == "placement_build":
+		_add_placed_objects_if_enabled(job["visual_root"], chunk_coord)
+		job["stage"] = "overlay_apply"
+	elif stage == "overlay_apply":
+		_apply_overlay(job["visual_root"], chunk_coord)
+		job["stage"] = "scene_attach"
+	elif stage == "scene_attach":
+		_attach_realized_chunk(key, job)
+		return
+
+	realization_jobs[key] = job
+
+
+func _attach_realized_chunk(key: String, job: Dictionary) -> void:
+	if visual_chunk_roots.has(key):
+		_cancel_realization_job(key)
+		return
+	var visual_root: Node3D = job["visual_root"]
+	if visual_root == null:
+		realization_jobs.erase(key)
+		return
+	var chunk_coord: Vector3i = job["chunk_coord"]
+	visual_root.position = Vector3(
+		float(chunk_coord.x) * chunk_edge_meters,
+		float(chunk_coord.y) * chunk_edge_meters,
+		float(chunk_coord.z) * chunk_edge_meters
+	)
+	chunk_root_container.add_child(visual_root)
+	visual_chunk_roots[key] = visual_root
+	realization_jobs.erase(key)
+
+
+func _cancel_realization_job(key: String) -> void:
+	if not realization_jobs.has(key):
+		return
+	var job: Dictionary = realization_jobs[key]
+	var visual_root: Node3D = job.get("visual_root", null)
+	if visual_root != null:
+		visual_root.free()
+	realization_jobs.erase(key)
+
+
+func _sorted_realization_entries() -> Array:
+	var entries: Array[Dictionary] = []
+	var focus_position := streaming_focus_position()
+	for key in realization_jobs.keys():
+		var job: Dictionary = realization_jobs[key]
+		var chunk_coord: Vector3i = job["chunk_coord"]
+		entries.append({
+			"key": key,
+			"priority": 0 if String(job["stage"]) != "visual_plan" else 1,
+			"distance": _chunk_distance_squared(chunk_coord, focus_position),
+		})
+	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a["priority"]) != int(b["priority"]):
+			return int(a["priority"]) < int(b["priority"])
+		if float(a["distance"]) != float(b["distance"]):
+			return float(a["distance"]) < float(b["distance"])
+		return String(a["key"]) < String(b["key"])
+	)
+	return entries
+
+
+func _phase_for_realization_stage(stage: String) -> String:
+	match stage:
+		"visual_plan":
+			return "visual_plan"
+		"visual_bucket_build":
+			return "visual_bucket_build"
+		"collision_build":
+			return "collision_build"
+		"placement_build":
+			return "placement_build"
+		"overlay_apply":
+			return "overlay_apply"
+		"scene_attach":
+			return "scene_attach"
+	return "realization"
 
 
 func visual_chunk_count() -> int:
@@ -208,6 +441,54 @@ func streaming_config() -> Dictionary:
 	return {}
 
 
+func _configure_frame_budget_scheduler() -> void:
+	if frame_budget_scheduler == null:
+		return
+	frame_budget_scheduler.configure(
+		frame_budget_preset,
+		frame_chunk_budget_us,
+		minimum_frame_budget_jobs
+	)
+	if chunk_provider != null and chunk_provider.has_method("configure_frame_budget_scheduler"):
+		chunk_provider.configure_frame_budget_scheduler(enable_frame_budget_scheduler)
+
+
+func _update_streaming_focus() -> void:
+	if (
+		streaming_node != null
+		and player_or_camera != null
+		and streaming_node.has_method("update_focus_from_vector3")
+	):
+		streaming_node.update_focus_from_vector3(streaming_focus_position())
+
+
+func streaming_focus_position() -> Vector3:
+	if player_or_camera == null:
+		return Vector3(0.0, streaming_focus_fixed_y_meters, 0.0)
+	var focus_position := player_or_camera.global_position
+	if streaming_focus_y_policy != "focus_y":
+		focus_position.y = streaming_focus_fixed_y_meters
+	return focus_position
+
+
+func frame_budget_diagnostics() -> Dictionary:
+	var queue_sizes := {
+		"provider_pending": chunk_provider.pending_request_count() if chunk_provider != null and chunk_provider.has_method("pending_request_count") else 0,
+		"realization_pending": realization_jobs.size(),
+		"unload_cleanup_pending": pending_unload_roots.size(),
+	}
+	if frame_budget_scheduler == null:
+		return {
+			"product_type": "FrameBudgetDiagnostics",
+			"enabled": false,
+			"queue_sizes": queue_sizes,
+		}
+	return frame_budget_scheduler.diagnostics({
+		"enabled": enable_frame_budget_scheduler,
+		"queue_sizes": queue_sizes,
+	})
+
+
 func visual_root_pool_size() -> int:
 	return visual_root_pool.size()
 
@@ -247,29 +528,33 @@ func get_runtime_diagnostics() -> Dictionary:
 		"loaded_chunks": provider_diagnostics.get("loaded_chunks", 0),
 		"visual_roots": visual_chunk_count(),
 		"collision_bodies": collision_body_count(),
-		"collision_shapes": collision_shape_count(),
-		"placed_layers": placed_layer_count(),
-		"placed_objects": placed_object_count(),
-		"overlay_chunks": overlay_chunk_count(),
-		"overlay_nodes": overlay_node_count(),
-		"pooled_roots": visual_root_pool_size(),
-		"reused_roots": reused_visual_root_count(),
-		"cache_hits": provider_diagnostics.get("cache_hits", 0),
-		"cache_misses": provider_diagnostics.get("cache_misses", 0),
-		"missing_asset_keys": catalog_diagnostics.get("missing_asset_keys", []),
-		"missing_asset_key_count": catalog_diagnostics.get("missing_asset_key_count", 0),
-		"invalid_visual_plans": invalid_visual_plan_count,
-		"generation_settings_hash": provider_diagnostics.get("generation", {}).get(
-			"generation_settings_hash",
-			0
-		),
-		"provider": provider_diagnostics,
-		"catalog": catalog_diagnostics,
-		"last_visual_plan": last_visual_plan_diagnostics,
-		"last_instantiation_plan": last_instantiation_plan_diagnostics,
-		"runtime_budgets": runtime_budget_contract(),
-		"visual_roots_have_matching_metadata": visual_roots_have_matching_metadata(),
-}
+			"collision_shapes": collision_shape_count(),
+			"placed_layers": placed_layer_count(),
+			"placed_objects": placed_object_count(),
+			"overlay_chunks": overlay_chunk_count(),
+			"overlay_nodes": overlay_node_count(),
+			"pooled_roots": visual_root_pool_size(),
+			"reused_roots": reused_visual_root_count(),
+			"cache_hits": provider_diagnostics.get("cache_hits", 0),
+			"cache_misses": provider_diagnostics.get("cache_misses", 0),
+			"missing_asset_keys": catalog_diagnostics.get("missing_asset_keys", []),
+			"missing_asset_key_count": catalog_diagnostics.get("missing_asset_key_count", 0),
+			"invalid_visual_plans": invalid_visual_plan_count,
+			"streaming_focus_y_policy": streaming_focus_y_policy,
+			"streaming_focus_fixed_y_meters": streaming_focus_fixed_y_meters,
+			"streaming_focus_position": streaming_focus_position(),
+			"generation_settings_hash": provider_diagnostics.get("generation", {}).get(
+				"generation_settings_hash",
+				0
+			),
+			"provider": provider_diagnostics,
+			"catalog": catalog_diagnostics,
+			"last_visual_plan": last_visual_plan_diagnostics,
+			"last_instantiation_plan": last_instantiation_plan_diagnostics,
+			"frame_budget": frame_budget_diagnostics(),
+			"runtime_budgets": runtime_budget_contract(),
+			"visual_roots_have_matching_metadata": visual_roots_have_matching_metadata(),
+	}
 
 
 func runtime_budget_contract() -> Dictionary:
@@ -280,20 +565,31 @@ func runtime_budget_contract() -> Dictionary:
 		"product_type": "RuntimeRealizationBudget",
 		"visual_backend": "multimesh",
 		"residency_root_pooling": true,
-			"max_pooled_visual_roots": max_pooled_visual_roots,
-			"load_radius_chunks": load_radius_chunks,
-			"unload_radius_chunks": unload_radius_chunks,
-			"vertical_load_radius_chunks": vertical_load_radius_chunks,
+		"max_pooled_visual_roots": max_pooled_visual_roots,
+		"load_radius_chunks": load_radius_chunks,
+		"unload_radius_chunks": unload_radius_chunks,
+		"vertical_load_radius_chunks": vertical_load_radius_chunks,
 			"vertical_unload_radius_chunks": vertical_unload_radius_chunks,
+			"streaming_focus_y_policy": streaming_focus_y_policy,
+			"streaming_focus_fixed_y_meters": streaming_focus_fixed_y_meters,
+			"frame_budget_scheduler_enabled": enable_frame_budget_scheduler,
+			"frame_budget_preset": frame_budget_preset,
+			"frame_chunk_budget_us": frame_chunk_budget_us,
+			"minimum_frame_budget_jobs": minimum_frame_budget_jobs,
+			"frame_budget_policy": "measured_shared_defer_with_one_job_minimum",
 			"expected_desired_chunks": expected_desired_chunk_count(),
-			"dirty_update_scope": "cell_visual_corners",
-			"dirty_cell_max_visual_corners": 4,
-			"dirty_realization_scope": "affected_multimesh_buckets",
-			"dirty_cell_max_bucket_rebuilds": 8,
-			"full_visual_rebuild_scope": "chunk_residency_or_backend_change",
+		"dirty_update_scope": "cell_visual_corners",
+		"dirty_cell_max_visual_corners": 4,
+		"dirty_realization_scope": "affected_multimesh_buckets",
+		"dirty_cell_max_bucket_rebuilds": 8,
+		"full_visual_rebuild_scope": "chunk_residency_or_backend_change",
 		"collision_backend": "merged_collision_rectangles",
-		"collision_shape_policy": "shape_owner_per_merged_collision_rectangle",
-		"max_collision_shapes_per_chunk": cells_per_chunk * cells_per_chunk,
+		"collision_shape_policy": "shape_owner_per_merged_blocker_or_floor_rectangle",
+		"ground_floor_collision_enabled": ground_floor_collision_enabled,
+		"ground_floor_thickness_meters": ground_floor_thickness_meters,
+		"ground_floor_top_y_meters": ground_floor_top_y_meters,
+		"max_blocker_collision_shapes_per_chunk": cells_per_chunk * cells_per_chunk,
+		"max_collision_shapes_per_chunk": cells_per_chunk * cells_per_chunk * 2,
 		"provider_cache_entries": (
 			chunk_provider.cache_entry_count()
 			if chunk_provider != null and chunk_provider.has_method("cache_entry_count")
@@ -394,6 +690,16 @@ func visual_roots_have_matching_metadata() -> bool:
 
 
 func clear_visual_roots_for_shutdown() -> void:
+	for key in realization_jobs.keys():
+		_cancel_realization_job(key)
+	realization_jobs.clear()
+
+	for key in pending_unload_roots.keys():
+		var pending_root: Node3D = pending_unload_roots[key]
+		if pending_root != null:
+			pending_root.free()
+	pending_unload_roots.clear()
+
 	for key in visual_chunk_roots.keys():
 		var active_root: Node3D = visual_chunk_roots[key]
 		if active_root == null:
@@ -431,7 +737,12 @@ func _add_collision_if_enabled(
 		canonical_record,
 		chunk_edge_meters,
 		chunk_provider.chunk_size_cells,
-		{"liquid_blocks_movement": liquid_blocks}
+		{
+			"liquid_blocks_movement": liquid_blocks,
+			"ground_floor_collision_enabled": ground_floor_collision_enabled,
+			"floor_thickness_meters": ground_floor_thickness_meters,
+			"floor_top_y_meters": ground_floor_top_y_meters,
+		}
 	)
 	visual_root.add_child(collision_body)
 
@@ -486,6 +797,22 @@ func _find_child_node(root: Node3D, child_name: String) -> Node:
 
 func _chunk_key(chunk_coord: Vector3i) -> String:
 	return "%s:%s:%s" % [chunk_coord.x, chunk_coord.y, chunk_coord.z]
+
+
+func _chunk_coord_from_key(key: String) -> Vector3i:
+	var parts := key.split(":")
+	if parts.size() < 3:
+		return Vector3i.ZERO
+	return Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+
+
+func _chunk_distance_squared(chunk_coord: Vector3i, focus_position: Vector3) -> float:
+	var center := Vector3(
+		(float(chunk_coord.x) + 0.5) * chunk_edge_meters,
+		(float(chunk_coord.y) + 0.5) * chunk_edge_meters,
+		(float(chunk_coord.z) + 0.5) * chunk_edge_meters
+	)
+	return center.distance_squared_to(focus_position)
 
 
 func _resolve_node3d_path(path: NodePath, fallback_name: String) -> Node3D:

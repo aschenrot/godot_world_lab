@@ -10,9 +10,11 @@ The lab has a stable collision prototype boundary:
 - Collision consumes canonical `GeneratedWorldChunkRecord.topology_layers`
   plus an explicit movement policy.
 - The current backend creates one `StaticBody3D` per chunk and one
-  `BoxShape3D` shape owner per merged blocking rectangle.
+  `BoxShape3D` shape owner per merged blocking rectangle or explicit walkable
+  floor rectangle.
 - Collision diagnostics report blocking cell count, merged shape count,
-  merge ratio, cell counts by reason/layer, and shape counts by reason/layer.
+  merge ratio, cell counts by reason/layer, shape counts by reason/layer, and
+  separate floor cell/shape counts when floor collision is enabled.
 
 This proves that collision can be derived from formed products without changing
 topology or streaming truth.
@@ -29,8 +31,10 @@ These parts remain Godot World Lab details:
 
 Ground visual tiles do not imply blockers. Solid/minable cells block movement,
 and liquid/depth cells block only when the lab policy says they do. The
-prototype is intentionally conservative. It proves lifecycle and ownership, not
-final gameplay physics.
+world controller can request separate walkable floor collision from canonical
+ground topology so rendered ground has physics without becoming a movement
+blocker. The prototype is intentionally conservative. It proves lifecycle and
+ownership, not final gameplay physics.
 
 ## Extraction Blockers
 

@@ -14,6 +14,8 @@ func _initialize() -> void:
 		return
 
 	main_scene = load("res://scenes/main.tscn").instantiate()
+	main_scene.load_radius_chunks = 1
+	main_scene.unload_radius_chunks = 2
 	root.add_child(main_scene)
 
 
@@ -23,11 +25,18 @@ func _process(_delta: float) -> bool:
 		return true
 
 	frame += 1
-	if frame == 4:
+	if frame > 240:
+		_fail("runtime diagnostics did not drain within frame budget")
+		main_scene.clear_visual_roots_for_shutdown()
+		quit(1)
+		return true
+
+	if frame >= 4 and not moved and _runtime_drained() and main_scene.visual_chunk_count() > 0:
 		_assert_diagnostics("initial")
 		main_scene.player_or_camera.global_position = Vector3(640.0, 0.0, 640.0)
+		moved = true
 
-	if frame == 24:
+	if moved and _runtime_drained() and main_scene.chunk_provider.completed_unload_count > 0:
 		_assert_diagnostics("after fast focus move")
 		_assert(main_scene.visual_chunk_count() == main_scene.visual_chunk_keys().size(), "visual roots are unique")
 		_assert(main_scene.visual_roots_have_matching_metadata(), "visual roots have matching metadata")
@@ -38,6 +47,22 @@ func _process(_delta: float) -> bool:
 		return true
 
 	return false
+
+
+var moved := false
+
+
+func _runtime_drained() -> bool:
+	if main_scene == null:
+		return false
+	var frame_budget: Dictionary = main_scene.frame_budget_diagnostics()
+	var queue_sizes: Dictionary = frame_budget.get("queue_sizes", {})
+	return (
+		main_scene.chunk_provider.pending_request_count() == 0
+		and main_scene.streaming_node.pending_request_count() == 0
+		and int(queue_sizes.get("realization_pending", 0)) == 0
+		and int(queue_sizes.get("unload_cleanup_pending", 0)) == 0
+	)
 
 
 func _assert_diagnostics(label: String) -> void:
@@ -54,14 +79,18 @@ func _assert_diagnostics(label: String) -> void:
 		"missing_asset_keys",
 		"missing_asset_key_count",
 		"invalid_visual_plans",
+		"streaming_focus_y_policy",
+		"streaming_focus_fixed_y_meters",
+		"streaming_focus_position",
 		"generation_settings_hash",
 		"provider",
 		"catalog",
 		"last_visual_plan",
 		"last_instantiation_plan",
-		"runtime_budgets",
-		"visual_roots_have_matching_metadata",
-	]
+			"runtime_budgets",
+			"frame_budget",
+			"visual_roots_have_matching_metadata",
+		]
 	for key in required_keys:
 		_assert(diagnostics.has(key), "%s diagnostics include %s" % [label, key])
 
@@ -75,6 +104,9 @@ func _assert_diagnostics(label: String) -> void:
 	var runtime_budgets: Dictionary = diagnostics["runtime_budgets"]
 	_assert(runtime_budgets.get("product_type", "") == "RuntimeRealizationBudget", "%s reports runtime budget contract" % label)
 	_assert(runtime_budgets.get("visual_backend", "") == "multimesh", "%s budget records visual backend" % label)
+	_assert(runtime_budgets.get("streaming_focus_y_policy", "") == "fixed_y", "%s budget records fixed terrain focus" % label)
+	_assert(bool(runtime_budgets.get("ground_floor_collision_enabled", false)), "%s budget records ground floor collision" % label)
+	_assert(bool(runtime_budgets.get("frame_budget_scheduler_enabled", false)), "%s budget records frame scheduler" % label)
 	_assert(int(runtime_budgets.get("dirty_cell_max_visual_corners", 0)) == 4, "%s budget records dirty-cell scope" % label)
 	_assert(
 		runtime_budgets.get("dirty_realization_scope", "") == "affected_multimesh_buckets",

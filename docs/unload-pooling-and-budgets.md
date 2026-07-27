@@ -23,12 +23,25 @@ Request budget pressure is host-visible through `WorldStreamingNode` settings:
 set_request_budgets(max_load_requests_per_tick, max_unload_requests_per_tick)
 ```
 
-The Godot lab may throttle requests, pool nodes, and move the camera quickly,
-but actual lifecycle state remains in `spatial_streaming`.
+Those settings throttle lifecycle request counts only. CPU work is separately
+bounded by the Godot lab frame scheduler:
+
+```text
+preset: balanced_60
+chunk work budget: 4000 us per frame
+minimum progress: one queued job per frame
+policy: measured shared budget, defer remaining jobs
+```
+
+`WorldController` drains provider load/unload work, chunk realization,
+collision, placement, overlay, scene attach, and unload cleanup through this
+scheduler. A chunk root is attached only after visual, collision, placement, and
+overlay stages are complete. `spatial_streaming` remains the lifecycle state
+machine; it does not own CPU frame scheduling.
 
 Validation:
 
 ```text
 godot --headless --path . --script tests/pooling_budget_smoke.gd
+godot --headless --path . --script tests/frame_budget_scheduler_smoke.gd
 ```
-

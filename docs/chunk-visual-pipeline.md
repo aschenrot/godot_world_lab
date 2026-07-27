@@ -104,14 +104,16 @@ runtime diagnostics. The current budget contract is:
 ```text
 visual backend: MultiMesh
 root lifecycle: chunk-resident roots with bounded pooling
+frame scheduling: measured shared 4000 us chunk-work budget by default
+visibility: attach complete chunk roots only after visual/collision/placement/overlay
 dirty update scope: one logic cell -> at most four visual corners
 dirty realization scope: affected MultiMesh buckets from visual_bucket_members
 full visual rebuild scope: chunk residency/backend rebuilds
-collision backend: one shape owner per merged blocking rectangle
+collision backend: one shape owner per merged blocker or floor rectangle
 ```
 
-The budget is a runtime realization contract only. It does not change generated
-truth or make Godot nodes part of `GeneratedWorldChunk`.
+The budget is a runtime realization and scheduling contract only. It does not
+change generated truth or make Godot nodes part of `GeneratedWorldChunk`.
 
 Validation:
 

@@ -105,7 +105,7 @@ func test_visual_and_collision_adapters_consume_generated_products_without_ownin
 	)
 	_assert(
 		int(collision_body.get_meta("collision_shape_count", 0))
-		== collision_plan.get("merged_boxes", []).size(),
+		== collision_plan.get("collision_boxes", collision_plan.get("merged_boxes", [])).size(),
 		"collision realization still matches collision plan"
 	)
 

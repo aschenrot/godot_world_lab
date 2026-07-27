@@ -5,6 +5,8 @@ var controller: Node
 var player_rig: Node3D
 var frame: int = 0
 var failed: bool = false
+var moved: bool = false
+var moved_second: bool = false
 
 
 func _initialize() -> void:
@@ -27,21 +29,38 @@ func _process(_delta: float) -> bool:
 		return true
 
 	frame += 1
-	if frame == 4:
+	if frame > 720:
+		_fail("budgeted playground runtime did not drain")
+		controller.clear_visual_roots_for_shutdown()
+		quit(1)
+		return true
+
+	if not moved and controller.visual_chunk_count() > 0:
 		_assert(controller.streaming_node != null, "playground installs streaming node")
 		_assert(controller.chunk_provider != null, "playground installs provider")
 		_assert(controller.visual_chunk_count() > 0, "playground creates visual chunks")
 		_assert(controller.visual_chunk_y_layers().size() == 1, "playground loads one terrain Y layer")
+		_assert(_playground_collision_has_floor(), "playground chunks include walkable ground floor collision")
 		_assert(
 			controller.expected_desired_chunk_count() == 81,
 			"playground desired chunk count uses one terrain layer"
 		)
-		player_rig.global_position = Vector3(512.0, 36.0, 0.0)
+		player_rig.global_position = Vector3(512.0, -2048.0, 0.0)
+		_assert(
+			is_equal_approx(controller.streaming_focus_position().y, 0.0),
+			"falling player does not move terrain streaming focus off the ground plane"
+		)
+		moved = true
 
-	if frame == 18:
-		player_rig.global_position = Vector3(512.0, 36.0, 512.0)
+	if moved and not moved_second and frame >= 18:
+		player_rig.global_position = Vector3(512.0, -2048.0, 512.0)
+		_assert(
+			is_equal_approx(controller.streaming_focus_position().y, 0.0),
+			"falling movement keeps streaming focus on fixed terrain Y"
+		)
+		moved_second = true
 
-	if frame == 36:
+	if moved_second and _runtime_drained() and controller.chunk_provider.completed_unload_count > 0:
 		_assert(controller.chunk_provider.completed_unload_count > 0, "movement streams chunks out")
 		_assert(controller.visual_chunk_count() == controller.visual_chunk_keys().size(), "no duplicate roots")
 		_assert(controller.visual_chunk_y_layers().size() == 1, "movement keeps one terrain Y layer")
@@ -54,6 +73,37 @@ func _process(_delta: float) -> bool:
 		quit(1 if failed else 0)
 		return true
 
+	return false
+
+
+func _runtime_drained() -> bool:
+	var frame_budget: Dictionary = controller.frame_budget_diagnostics()
+	var queue_sizes: Dictionary = frame_budget.get("queue_sizes", {})
+	return (
+		controller.chunk_provider.pending_request_count() == 0
+		and controller.streaming_node.pending_request_count() == 0
+		and int(queue_sizes.get("realization_pending", 0)) == 0
+		and int(queue_sizes.get("unload_cleanup_pending", 0)) == 0
+	)
+
+
+func _playground_collision_has_floor() -> bool:
+	for key in controller.visual_chunk_keys():
+		var parts := String(key).split(":")
+		if parts.size() < 3:
+			continue
+		var chunk_coord := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+		var visual_root: Node3D = controller.get_visual_chunk_root(chunk_coord)
+		if visual_root == null:
+			continue
+		for child in visual_root.get_children():
+			if child is StaticBody3D and child.name == "ChunkCollision":
+				var collision_body := child as StaticBody3D
+				var collision_plan: Dictionary = collision_body.get_meta("collision_plan", {})
+				var policy: Dictionary = collision_plan.get("policy", {})
+				if bool(policy.get("ground_floor_collision_enabled", false)) \
+					and not collision_plan.get("floor_boxes", []).is_empty():
+					return true
 	return false
 
 
